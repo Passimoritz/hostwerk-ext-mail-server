@@ -1,0 +1,41 @@
+![Mailserver](banner.svg)
+
+# Mailserver
+
+Echte Postfächer mit eigener Domain: Stalwart oder Apache James – Einrichtung, Postfächer, DKIM/SPF/DMARC mit allen DNS-Einträgen zum Kopieren. Der Mail-Fänger zum Entwickeln bleibt in Hostwerk.
+
+[English](README.md) · Offizielle [Hostwerk](https://github.com/Passimoritz/hostwerk-public)-Erweiterung (SDK 2.7, native Erweiterung)
+
+![Bildschirmfoto](docs/screenshot.de.png)
+
+## Was sie kann
+
+- Zwei Programme zur Wahl, mit Vor- und Nachteilen
+- Postfächer, Weiterleitungen und Testmail
+- Alle DNS-Einträge (MX, SPF, DKIM, DMARC, Autoconfig) zum Kopieren, mit Zweck
+- Einstellungen fürs Mailprogramm
+- Ports, die sich nie in die Quere kommen, Start mit Hostwerk
+
+## Installieren
+
+In Hostwerk unter **Erweiterungen → Entdecken** auf „Installieren“ klicken. Wer die Funktion schon in Hostwerk 2.8 benutzt hat, bekommt die Erweiterung beim Update automatisch – mit allen Daten.
+
+Native Erweiterungen laufen als Teil von Hostwerk (eigener Server- und Oberflächen-Teil). Darum installiert Hostwerk sie nur aus dem offiziellen Katalog (mit Prüfsumme) oder im Entwickler-Modus.
+
+## Daten
+
+`settings.mailservers, data/mailserver` – genau dort, wo Hostwerk sie schon immer abgelegt hat. Entfernen der Erweiterung löscht nichts.
+
+## Entwickeln
+
+```bash
+node --test tests/*.test.js          # Tests
+node build-native.js .               # Oberfläche bauen (sdk/build-native.js aus hostwerk-public)
+node check.js . --strict             # Prüfung wie im Katalog (sdk/check.js)
+```
+
+Quelltext der Oberfläche in `ui/src`, Server-Teil in `server/`. Texte im Code sind Englisch, Deutsch steht in `locales/de.json`.
+
+## Lizenz
+
+MIT
