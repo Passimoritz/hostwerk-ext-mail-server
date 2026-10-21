@@ -105,6 +105,20 @@ const stalwart = {
     if (!list.length) throw new Error(T('Stalwart was not found in the release for this system.'));
     return list[0];
   },
+  /** Download and unpack one release into its own version folder, then check that the program starts (--version). */
+  async download(svc, rel, job) {
+    const dir = path.join(this.dir(svc), rel.version);
+    const file = path.join(svc.ctx.paths.cache, `${rel.version}-${rel.name}`);
+    job.log(`Stalwart ${rel.version} – ${Math.round(rel.size / 1048576)} MB`);
+    await downloadFile(rel.url, file, { onProgress: jobProgress(job, T('Downloading Stalwart {v}', { v: rel.version }), 0, 75) });
+    job.progress(78, T('Unpacking …'));
+    await extractZip(file, dir);
+    fs.rmSync(file, { force: true });
+    const t = await probe(path.join(dir, X('stalwart')), ['--version']);
+    if (!t.ok) throw Object.assign(new Error(t.blocked ? BLOCK_HINT : T('Stalwart does not start: {out}', { out: t.output })), { blocked: t.blocked });
+    job.log(`Version ${t.output.trim()}`);
+    return dir;
+  },
   /** Trial run: can this version be set up the way this extension does it? (bootstrap in a test folder) */
   async probeSetup(svc, exe) {
     const tmp = fs.mkdtempSync(path.join(svc.ctx.paths.cache, 'stalwart-probe-'));
@@ -147,16 +161,7 @@ const stalwart = {
       const had = fs.existsSync(path.join(dir, X('stalwart')));
       const run = async () => {
         if (had) return dir; // already there (e.g. installed before self-maintenance) – only check it
-        const file = path.join(svc.ctx.paths.cache, `${rel.version}-${rel.name}`);
-        job.log(`Stalwart ${rel.version} – ${Math.round(rel.size / 1048576)} MB`);
-        await downloadFile(rel.url, file, { onProgress: jobProgress(job, T('Downloading Stalwart {v}', { v: rel.version }), 0, 75) });
-        job.progress(78, T('Unpacking …'));
-        await extractZip(file, dir);
-        fs.rmSync(file, { force: true });
-        const t = await probe(path.join(dir, X('stalwart')), ['--version']);
-        if (!t.ok) throw Object.assign(new Error(t.blocked ? BLOCK_HINT : T('Stalwart does not start: {out}', { out: t.output })), { blocked: t.blocked });
-        job.log(`Version ${t.output.trim()}`);
-        return dir;
+        return this.download(svc, rel, job);
       };
       const probeIt = async () => { job.progress(85, T('Trial run: testing the setup …')); await this.probeSetup(svc, path.join(dir, X('stalwart'))); job.log(T('Trial run passed ✓')); };
       // Only clean up versions downloaded right now – one already in use stays
@@ -520,6 +525,61 @@ const james = {
 
 const IMPL = { stalwart, james };
 
+/* ====================================================================================== Security updates */
+/*
+ * Stalwart registers with Hostwerk's security updates (ctx.patchUpdates.register, Hostwerk 2.11+) – the mail server is
+ * the service with the most contact to the internet. Patch versions of the same series (0.13.4 → 0.13.5) go in like every
+ * other Hostwerk security update: the new version is unpacked next to the running one, then the trial run (setup in a test
+ * folder) and a restart of every running Stalwart server on it; only if that works the older folders are removed –
+ * otherwise the new folder goes and the servers start on the previous version again. A failed version is skipped (also for
+ * new setups) until a newer one appears. Larger jumps stay a decision of the person (“Install” in the extension).
+ * Apache James comes as one archive from the Apache directory and is not part of this.
+ */
+const series = (v) => String(v).split('.').slice(0, 2).join('.');
+const quietJob = { log() {}, progress() {}, status() {} };
+function patchSource(svc) {
+  const usesStalwart = () => svc.list().some((c) => c.engine === 'stalwart');
+  const runningStalwart = () => svc.configured().filter((i) => i.cfg.engine === 'stalwart' && i.proc.isRunning());
+  return {
+    label: 'Mail server (Stalwart)',
+    labels: { de: 'Mailserver', en: 'Mail server' },
+    items() { const m = stalwart.installed(svc); return m && usesStalwart() ? [{ key: 'stalwart', label: 'Stalwart', version: m.version }] : []; },
+    async updates() {
+      const m = stalwart.installed(svc);
+      if (!m || !usesStalwart()) return [];
+      const rel = (await stalwart.releases()).find((r) => series(r.version) === series(m.version) && cmpVersion(r.version, m.version) > 0);
+      return rel ? [{ key: 'stalwart', label: 'Stalwart', current: m.version, latest: rel.version, target: rel }] : [];
+    },
+    plan(u) {
+      const dir = path.join(stalwart.dir(svc), u.latest);
+      const exe = path.join(dir, X('stalwart'));
+      const st = { had: false, restarted: [] };
+      const restart = async (list) => { for (const i of list) { await i.stop().catch(() => {}); await i.start(); } };
+      return {
+        install: async () => { st.had = fs.existsSync(exe); if (!st.had) await stalwart.download(svc, u.target, quietJob); return { dir }; },
+        probe: async () => {
+          await stalwart.probeSetup(svc, exe);
+          // installed() takes the newest folder – running servers move to the new version and have to come up again
+          st.restarted = runningStalwart();
+          await restart(st.restarted);
+          for (const i of st.restarted) if (i.proc.state !== 'running') throw new Error(T('{name} does not run with Stalwart {v}.', { name: i.cfg.name, v: u.latest }));
+        },
+        activate: async () => {
+          const root = stalwart.dir(svc);
+          for (const v of fs.readdirSync(root)) if (v !== u.latest && cmpVersion(v, u.latest) < 0) fs.rmSync(path.join(root, v), { recursive: true, force: true });
+          if (svc.ctx.keeper) svc.ctx.keeper.setGood('stalwart', u.latest, T('Mail server (Stalwart)'));
+        },
+        discard: async () => {
+          if (!st.had) fs.rmSync(dir, { recursive: true, force: true });
+          const k = svc.ctx.keeper;
+          if (k) { const e = k.entry('stalwart', T('Mail server (Stalwart)')); if (!e.bad.includes(u.latest)) e.bad = [...e.bad, u.latest].slice(-10); k.save(); }
+          await restart(st.restarted).catch(() => {});
+        },
+      };
+    },
+  };
+}
+
 /* ====================================================================================== Instance */
 class MailInstance {
   constructor(svc, id) {
@@ -765,4 +825,4 @@ function parseZone(zone) {
   return out;
 }
 
-module.exports = { MailServerService, parseZone, ENGINES, STALWART_PORTS, JAMES_PORTS, bindCore };
+module.exports = { MailServerService, parseZone, ENGINES, STALWART_PORTS, JAMES_PORTS, bindCore, patchSource, IMPL };

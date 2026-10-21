@@ -91,3 +91,52 @@ test('older single setting is taken over, messages in German', () => {
 test('every German text has a value', () => {
   for (const [k, v] of Object.entries(de)) if (k !== '$patterns') assert.ok(typeof v === 'string' && v.trim(), k);
 });
+
+test('Stalwart registers with Hostwerk security updates: same series only, trial run, fallback', async () => {
+  const { patchSource, IMPL } = require('../server/mailserver');
+  const h = fakeHost();
+  const svc = new MailServerService(h);
+  svc.create({ engine: 'stalwart', name: 'Mail' });
+  const root = path.join(h.ctx.paths.bin, 'stalwart');
+  const put = (v) => { fs.mkdirSync(path.join(root, v), { recursive: true }); fs.writeFileSync(path.join(root, v, 'stalwart.exe'), ''); };
+  put('0.13.4');
+  const st = IMPL.stalwart;
+  const orig = { releases: st.releases, download: st.download, probeSetup: st.probeSetup };
+  const keeper = { good: null, data: {}, entry(k) { return this.data[k] || (this.data[k] = { bad: [] }); }, setGood(k, v) { this.good = v; }, save() {} };
+  h.ctx.keeper = keeper;
+  try {
+    st.releases = async () => [{ version: '0.14.0' }, { version: '0.13.5', name: 'x.zip', size: 1 }, { version: '0.13.4' }];
+    st.download = async (s, rel) => { put(rel.version); return path.join(root, rel.version); };
+    const src = patchSource(svc);
+    assert.deepStrictEqual(src.items(), [{ key: 'stalwart', label: 'Stalwart', version: '0.13.4' }]);
+    const [u] = await src.updates();
+    assert.strictEqual(u.latest, '0.13.5', 'no jump to 0.14');
+    // trial run passes → older folder removed, version remembered as good
+    st.probeSetup = async () => {};
+    let p = src.plan(u);
+    await p.install(); await p.probe(); await p.activate();
+    assert.ok(!fs.existsSync(path.join(root, '0.13.4')) && fs.existsSync(path.join(root, '0.13.5')));
+    assert.strictEqual(keeper.good, '0.13.5');
+    // trial run fails → new folder goes, version skipped for new setups too
+    st.releases = async () => [{ version: '0.13.6', name: 'x.zip', size: 1 }];
+    const [u2] = await src.updates();
+    st.probeSetup = async () => { throw new Error('bootstrap refused'); };
+    p = src.plan(u2);
+    await p.install();
+    await assert.rejects(p.probe(), /bootstrap refused/);
+    await p.discard();
+    assert.ok(!fs.existsSync(path.join(root, '0.13.6')));
+    assert.deepStrictEqual(keeper.data.stalwart.bad, ['0.13.6']);
+  } finally { Object.assign(st, orig); }
+});
+
+test('activate registers the update source and removes it on shutdown', () => {
+  const h = fakeHost();
+  const hooks = {}; const reg = [];
+  const host = { ...h, provide: () => {}, router: { get() {}, post() {}, put() {}, delete() {}, use() {} }, on: (ev, fn) => { (hooks[ev] = hooks[ev] || []).push(fn); } };
+  host.ctx.patchUpdates = { register: (id, def) => { reg.push(id); assert.strictEqual(typeof def.updates, 'function'); assert.strictEqual(typeof def.plan, 'function'); return () => reg.splice(reg.indexOf(id), 1); } };
+  require('../server/index').activate(host);
+  assert.deepStrictEqual(reg, ['mail-server']);
+  for (const fn of hooks.shutdown) fn();
+  assert.deepStrictEqual(reg, []);
+});

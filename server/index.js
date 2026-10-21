@@ -4,7 +4,7 @@
  * there), starts servers marked "start with Hostwerk", same API as when it was built in: /api/mailservers …
  * Processes run in Hostwerk's process registry – stopping Hostwerk stops them like every other service.
  */
-const { MailServerService } = require('./mailserver');
+const { MailServerService, patchSource } = require('./mailserver');
 
 function activate(host) {
   const svc = new MailServerService(host);
@@ -12,6 +12,12 @@ function activate(host) {
   svc.routes(host.router);
   // Autostart: after the databases, before the web servers (Hostwerk runs extension tasks in that group)
   host.on('autostart', (want) => svc.configured().filter((i) => want(i.cfg.autostart, i.proc.id)).map((i) => () => i.start()));
+  // Security updates for Stalwart (patch versions with trial run and fallback) – Hostwerk 2.11+ offers patchUpdates.register()
+  const pu = host.ctx.patchUpdates;
+  if (pu && typeof pu.register === 'function') {
+    const off = pu.register('mail-server', patchSource(svc));
+    host.on('shutdown', () => off());
+  }
 }
 
 module.exports = { activate };

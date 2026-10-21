@@ -15,6 +15,7 @@ Real mailboxes with your own domain: Stalwart or Apache James – setup, mailbox
 - Every DNS record (MX, SPF, DKIM, DMARC, autoconfig) ready to copy, with what it is for
 - Settings for the mail program
 - Ports that never clash, start with Hostwerk
+- Security updates for Stalwart: patch versions arrive with Hostwerk's security updates – tried out first, the previous version stays if the new one fails (Hostwerk 2.11 or newer)
 
 ## Install
 

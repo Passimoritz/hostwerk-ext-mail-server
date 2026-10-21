@@ -15,6 +15,7 @@ Echte Postfächer mit eigener Domain: Stalwart oder Apache James – Einrichtung
 - Alle DNS-Einträge (MX, SPF, DKIM, DMARC, Autoconfig) zum Kopieren, mit Zweck
 - Einstellungen fürs Mailprogramm
 - Ports, die sich nie in die Quere kommen, Start mit Hostwerk
+- Sicherheits-Updates für Stalwart: Patch-Versionen kommen mit Hostwerks Sicherheits-Updates – erst ausprobiert, bei einem Fehler bleibt die vorige Version (ab Hostwerk 2.11)
 
 ## Installieren
 

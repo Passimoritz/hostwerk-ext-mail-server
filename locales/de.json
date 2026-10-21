@@ -224,5 +224,6 @@
   "Domain not found": "Domain nicht gefunden",
   "Test from Hostwerk": "Test aus Hostwerk",
   "This message was sent by Hostwerk through your own mail server.": "Diese Nachricht wurde von Hostwerk über deinen eigenen Mailserver verschickt.",
+  "{name} does not run with Stalwart {v}.": "{name} läuft mit Stalwart {v} nicht.",
   "$patterns": [["info@{}", "info@{}"], ["mail.{}", "mail.{}"]]
 }
