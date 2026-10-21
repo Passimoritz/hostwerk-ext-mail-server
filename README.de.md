@@ -10,6 +10,7 @@ Echte Postfächer mit eigener Domain: Stalwart oder Apache James – Einrichtung
 
 ## Was sie kann
 
+- **Wo:** E-Mail → Mailserver – seit 1.3.1 ohne eigenen Seitenleisten-Eintrag; die ganze Seite bleibt unter Erweiterungen → Öffnen
 - Zwei Programme zur Wahl, mit Vor- und Nachteilen
 - Postfächer, Weiterleitungen und Testmail
 - Alle DNS-Einträge (MX, SPF, DKIM, DMARC, Autoconfig) zum Kopieren, mit Zweck

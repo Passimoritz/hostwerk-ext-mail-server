@@ -10,6 +10,7 @@ Real mailboxes with your own domain: Stalwart or Apache James – setup, mailbox
 
 ## What it does
 
+- **Where:** E-mail → Mail server – no own sidebar entry since 1.3.1; the full page stays under Extensions → Open
 - Two engines to choose from, with pros and cons
 - Mailboxes, aliases and a test mail
 - Every DNS record (MX, SPF, DKIM, DMARC, autoconfig) ready to copy, with what it is for

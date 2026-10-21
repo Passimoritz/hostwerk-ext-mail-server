@@ -1,3 +1,7 @@
+## 1.3.1
+
+- Lives where it belongs: E-mail → Mail server – no own sidebar entry any more (Hostwerk 3.0+); the full page stays under Extensions → Open and can be pinned in the sidebar settings. / Steckt jetzt dort, wo sie hingehört: E-Mail → Mailserver – kein eigener Seitenleisten-Eintrag mehr (Hostwerk 3.0+); die ganze Seite bleibt unter Erweiterungen → Öffnen und lässt sich in den Seitenleisten-Einstellungen anheften.
+
 ## 1.3.0
 
 - DNS records with one click: with the extension “DNS management” the page “Domains & DNS” shows which MX, SPF, DKIM and DMARC records are already at the provider, sets the ticked ones (missing required ones are preselected, with a confirmation) and checks whether they arrive outside (Cloudflare, Google, Quad9). Without the extension there is a hint instead. / DNS-Einträge per Klick: Mit der Erweiterung „DNS-Verwaltung“ zeigt „Domains & DNS“, welche MX-, SPF-, DKIM- und DMARC-Einträge beim Anbieter schon stehen, setzt die angehakten (fehlende Pflicht-Einträge sind vorausgewählt, mit Rückfrage) und prüft, ob sie draußen ankommen (Cloudflare, Google, Quad9). Ohne die Erweiterung steht dort ein Hinweis.
