@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Server, Download, Globe, Laptop, Users, Globe2, Plug, Send, Plus, Trash2, KeyRound, Copy, ExternalLink, CheckCircle2, XCircle, RefreshCw, Eye, Wand2, AlertTriangle, Check, X, Pencil, Coffee, Feather } from 'lucide-react';
-import { get, post, put, del, useApi, useStore, waitJob, openExternal } from '@hostwerk/api';
+import { Server, Download, Globe, Laptop, Users, Globe2, Plug, Send, Plus, Trash2, KeyRound, Copy, ExternalLink, CheckCircle2, XCircle, RefreshCw, Eye, Wand2, AlertTriangle, Check, X, Pencil, Coffee, Feather, Archive, RotateCcw, Truck, Puzzle, ShieldCheck } from 'lucide-react';
+import { get, post, put, del, useApi, useStore, waitJob, openExternal, fmtBytes, fmtDate } from '@hostwerk/api';
 import { Btn, Tabs, Field, Seg, Callout, Empty, Loading, Modal, Progress, StatusPill, toast, confirmDialog, promptDialog, InfoTip } from '@hostwerk/ui';
 import { useNew, ServiceButtons, ProcStats, AddTile, SvcImage, CompareButton, NotesButton } from '@hostwerk/kit';
 import { t } from '@hostwerk/i18n';
@@ -232,6 +232,7 @@ function Domains({ info }) {
     <div className="stack">
       <InfoTip title="How your mails arrive (and not in spam)">{t('Enter the records below in the DNS settings of your domain provider.')} {info.engine === 'stalwart' ? t('MX, SPF, DKIM and DMARC are required – the others help mail programs set themselves up.') : t('MX, SPF, DKIM and DMARC are required.')} {t('The host name {host} also needs an A record pointing to the IP of your server.', { host: info.hostname })} {t('DNS changes can take up to a few hours.')}</InfoTip>
       {info.engine === 'james' && <Callout kind="warn">With Apache James the mail server restarts briefly after adding or removing a domain, so the DKIM signature takes effect.</Callout>}
+      <DnsAuto info={info} />
       {doms.data.map((d) => {
         const c = check[d.id];
         return (
@@ -268,6 +269,143 @@ function Domains({ info }) {
       <Delivery info={info} />
       <div><Btn icon={Plus} onClick={async () => { const n = await promptDialog({ title: 'Another domain', label: 'Domain (e.g. seconddomain.com)' }); if (n) { try { doms.setData(await post(`${B}/domains`, { name: n })); toast.success(t('{name} added – a DKIM key was created', { name: n })); } catch (e) { toast.error(e); } } }}>Another domain</Btn></div>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ DNS with one click (extension "DNS management") */
+function DnsAuto({ info }) {
+  const B = `/mailservers/${info.id}/dns-auto`;
+  const st = useApi(B);
+  const [pick, setPick] = useState(null);
+  const [busy, setBusy] = useState(null);
+  const [res, setRes] = useState({});
+  const [ver, setVer] = useState({});
+  if (st.error) return <Callout kind="err" title="DNS records could not be read">{st.error.message || String(st.error)}</Callout>;
+  if (!st.data) return <Loading />;
+  if (!st.data.available) {
+    return (
+      <div className="card"><div className="card-head"><Wand2 size={16} /><h3>Set the records automatically</h3>
+        <InfoTip title="Set the records automatically">With the extension “DNS management” Hostwerk enters MX, SPF, DKIM and DMARC at your DNS provider (Cloudflare, Hetzner, INWX, IONOS) – with a preview first.</InfoTip>
+        <div className="right"><Btn className="xs" icon={Puzzle} onClick={() => { location.hash = '#/ext'; }}>Get DNS management</Btn></div>
+      </div><div className="card-body small muted">{t('Until then: copy the records below into the DNS settings of your provider.')}</div></div>
+    );
+  }
+  const all = st.data.domains.flatMap((d) => (d.zone ? d.records : []));
+  // Vorauswahl: was fehlt und Pflicht ist
+  const chosen = pick || new Set(all.filter((r) => !r.present && r.required).map((r) => r.key));
+  const toggle = (k) => { const n = new Set(chosen); if (n.has(k)) n.delete(k); else n.add(k); setPick(n); };
+  const apply = async () => {
+    if (!await confirmDialog({ title: t('Set {n} records at your DNS provider?', { n: chosen.size }), text: 'Existing SPF, DKIM and DMARC entries with the same name are replaced, everything else is added.', confirm: 'Set records' })) return;
+    setBusy('apply');
+    try {
+      const r = await post(B, { keys: [...chosen] });
+      setRes(Object.fromEntries(r.results.map((x) => [x.key, x])));
+      const bad = r.results.filter((x) => x.action === 'error');
+      if (bad.length) toast.error(t('{n} records could not be set', { n: bad.length })); else toast.success('The records are set – DNS changes can take a while to arrive everywhere');
+      setPick(null); st.reload({ silent: true });
+    } catch (e) { toast.error(e); }
+    setBusy(null);
+  };
+  const verify = async () => {
+    setBusy('verify');
+    try { const r = await post(`${B}/verify`, {}); setVer(Object.fromEntries(r.results.map((x) => [x.key, x]))); } catch (e) { toast.error(e); }
+    setBusy(null);
+  };
+  const Out = ({ v }) => (!v ? null : v.ok ? <span className="badge ok">{t('arrives')}</span> : v.some ? <span className="badge warn">{t('partly')}</span> : <span className="badge">{t('not yet')}</span>);
+  return (
+    <div className="card">
+      <div className="card-head"><Wand2 size={16} /><h3>Set the records automatically</h3>
+        <InfoTip title="Set the records automatically">Through the extension “DNS management”: tick what should go to your DNS provider. Records that are already there are marked. “Check” asks Cloudflare, Google and Quad9 whether the records arrive outside.</InfoTip>
+        <div className="right row-tight">
+          <Btn className="xs" icon={ShieldCheck} busy={busy === 'verify'} disabled={!!busy} onClick={verify}>Check</Btn>
+          <Btn className="xs primary" icon={Wand2} busy={busy === 'apply'} disabled={!!busy || !chosen.size} onClick={apply}>{t('Set {n} records', { n: chosen.size })}</Btn>
+        </div>
+      </div>
+      {st.data.domains.map((d) => (
+        <div key={d.name} className="card-body stack mail-dns-auto">
+          <b className="small">{d.name}</b>
+          {!d.zone ? <Callout kind="warn">{t('No DNS account in “DNS management” holds the zone of {name} yet – add the account there first.', { name: d.name })}</Callout> : d.records.map((r) => (
+            <label key={r.key} className="check small row-tight">
+              <input type="checkbox" checked={chosen.has(r.key)} onChange={() => toggle(r.key)} aria-label={t('{type} record {name}', { type: r.type, name: r.name })} />
+              <span className="mono mail-dns-type">{r.type}</span>
+              <span className="mono ellipsis grow" title={`${r.name} → ${r.priority != null ? `${r.priority} ` : ''}${r.content}`}>{r.name}</span>
+              <span className="muted">{r.purpose}</span>
+              {r.present ? <span className="badge ok">{t('already there')}</span> : <span className="badge">{t('missing')}</span>}
+              {res[r.key] && <span className={`badge ${res[r.key].action === 'error' ? 'err' : 'ok'}`} title={res[r.key].error || ''}>{res[r.key].action === 'error' ? t('failed') : t(res[r.key].action)}</span>}
+              <Out v={ver[r.key]} />
+            </label>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ backups and moving */
+function Backups({ info }) {
+  const B = `/mailservers/${info.id}/backups`;
+  const st = useApi(B);
+  const [busy, setBusy] = useState(null);
+  const run = async (what, fn) => { setBusy(what); try { const r = await fn(); if (r && r.job) { const j = await waitJob(r.job); if (j && j.result && j.result.text) toast.success(j.result.text); } st.reload({ silent: true }); } catch (e) { toast.error(e); } setBusy(null); };
+  const items = (st.data && st.data.items) || [];
+  return (
+    <div className="card">
+      <div className="card-head"><Archive size={16} /><h3>Backups</h3>
+        <InfoTip title="Backups of the mailboxes">Each backup holds every mailbox with all mails, the DKIM keys and the setup. The mail server stops for a moment while packing and starts again right away – other servers simply deliver a little later. The backups also appear in Hostwerk’s backup centre and go along with the off-site backup (“Data from extensions”). To move to another computer, copy a backup there and use “Take over from another computer”.</InfoTip>
+        <div className="right"><Btn className="xs primary" icon={Archive} busy={busy === 'now'} disabled={!!busy} onClick={() => run('now', () => post(B, {}))}>Back up now</Btn></div>
+      </div>
+      {st.error ? <div className="card-body"><Callout kind="err" title="Backups could not be read">{st.error.message || String(st.error)}</Callout></div>
+        : !st.data ? <Loading />
+          : !items.length ? <Empty icon={Archive} title="No backup yet" text="Back up now – or let Hostwerk’s off-site backup take the mailboxes along." />
+            : (
+              <table className="table">
+                <thead><tr><th>Backup</th><th>Size</th><th /></tr></thead>
+                <tbody>
+                  {items.map((b) => (
+                    <tr key={b.file}>
+                      <td className="small"><span className="mono">{b.file}</span><div className="tiny muted">{fmtDate(b.time)}</div></td>
+                      <td className="small">{fmtBytes(b.size)}</td>
+                      <td className="row-tight mail-actions">
+                        <Btn className="xs" icon={RotateCcw} busy={busy === b.file} disabled={!!busy} onClick={async () => { if (await confirmDialog({ title: t('Restore {file}?', { file: b.file }), text: 'The mail server gets the mailboxes of this backup. The current state is backed up first and stays in this list.', confirm: 'Restore', danger: true })) run(b.file, () => post(`${B}/${encodeURIComponent(b.file)}/restore`, {})); }}>Restore</Btn>
+                        <Btn className="ghost xs icon" icon={Trash2} title="Delete backup" aria-label={t('Delete backup {file}', { file: b.file })} disabled={!!busy} onClick={async () => { if (await confirmDialog({ title: t('Delete {file}?', { file: b.file }), text: 'The backup file is deleted for good.', confirm: 'Delete', danger: true })) { try { await del(`${B}/${encodeURIComponent(b.file)}`); st.reload({ silent: true }); } catch (e) { toast.error(e); } } }} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+      {st.data && <div className="card-body tiny muted row-tight"><span className="grow mono ellipsis" title={st.data.dir}>{st.data.dir}</span><button type="button" className="btn ghost xs icon" title="Copy folder" aria-label="Copy folder" onClick={() => copy(st.data.dir)}><Copy /></button></div>}
+    </div>
+  );
+}
+
+/** Take over a mail server from another computer: path of its backup ZIP (+ admin password for Stalwart). */
+function ImportDialog({ onClose, go }) {
+  const [f, setF] = useState({ file: '', adminPassword: '' });
+  const [job, setJob] = useState(null);
+  const [error, setError] = useState(null);
+  const jobState = useStore((s) => (job && s.jobs ? s.jobs[job] : null));
+  const run = async () => {
+    setError(null);
+    try {
+      const r = await post('/mailservers/import', f);
+      setJob(r.job);
+      const j = await waitJob(r.job);
+      if (j && j.result) { toast.success(j.result.text); onClose(); go(j.result.id); }
+    } catch (e) { setError(e.message); }
+    setJob(null);
+  };
+  return (
+    <Modal title="Take over from another computer" subtitle="Mailboxes, mails, DKIM keys and setup – from a backup of the old computer." onClose={job ? undefined : onClose}
+      footer={<><Btn onClick={onClose} disabled={!!job}>Cancel</Btn><Btn className="grad" icon={Truck} busy={!!job} disabled={!f.file || !!job} onClick={run}>Take over</Btn></>}>
+      <div className="stack">
+        <Field label="Backup file on this computer" hint="A backup from the old computer (mail server → Backups) or mail-<name>.zip from its off-site backup. Encrypted off-site files (.hwenc) have to be decrypted first."><input className="input mono" placeholder="C:\Users\…\mailserver-20261021-120000.zip" value={f.file} onChange={(e) => setF({ ...f, file: e.target.value })} /></Field>
+        <Field label="Admin password of the old computer" hint="Only for Stalwart: on the old computer under “Admin access”. Apache James brings it along."><input className="input" type="password" autoComplete="off" value={f.adminPassword} onChange={(e) => setF({ ...f, adminPassword: e.target.value })} /></Field>
+        <Callout kind="info" dismissible={false}>Start the mail server here only when the old computer no longer receives mail – and point the DNS records (A record of the host name) to this computer.</Callout>
+        {jobState && <div className="fade-in"><div className="small muted mail-gap-b">{jobState.text}</div><Progress value={jobState.progress} indeterminate={!jobState.progress} /></div>}
+        {error && <Callout kind="err" title="That did not work">{error}</Callout>}
+      </div>
+    </Modal>
   );
 }
 
@@ -333,12 +471,13 @@ function Detail({ info, reload, multi, go, vault }) {
         </div>
         <ProcStats proc={info.proc} svc={info.proc.id} compact />
       </div>
-      {!running ? <div className="card"><Empty icon={Server} title="The mail server is stopped" text={info.engine === 'james' ? t('Start it to manage mailboxes and domains. Apache James needs about 5–15 seconds to start.') : t('Start it to manage mailboxes and domains.')} /></div> : (
+      {!running ? <div className="stack"><div className="card"><Empty icon={Server} title="The mail server is stopped" text={info.engine === 'james' ? t('Start it to manage mailboxes and domains. Apache James needs about 5–15 seconds to start.') : t('Start it to manage mailboxes and domains.')} /></div><Backups info={info} /></div> : (
         <>
-          <Tabs tabs={[{ id: 'accounts', label: 'Mailboxes', icon: Users }, { id: 'dns', label: 'Domains & DNS', icon: Globe2 }, { id: 'connect', label: 'Connection & test', icon: Plug }]} value={tab} onChange={setTab} />
+          <Tabs tabs={[{ id: 'accounts', label: 'Mailboxes', icon: Users }, { id: 'dns', label: 'Domains & DNS', icon: Globe2 }, { id: 'connect', label: 'Connection & test', icon: Plug }, { id: 'backups', label: 'Backups', icon: Archive }]} value={tab} onChange={setTab} />
           {tab === 'accounts' && <Accounts info={info} vault={vault} />}
           {tab === 'dns' && <Domains info={info} />}
           {tab === 'connect' && <Connect info={info} />}
+          {tab === 'backups' && <Backups info={info} />}
         </>
       )}
       <div className="small muted mt row">
@@ -354,12 +493,15 @@ function Detail({ info, reload, multi, go, vault }) {
 export default function MailServer({ id, base = '/mail/server' }) {
   const st = useApi('/mailservers');
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
   useNew('mailserver', () => setAdding(true));
   const go = (x) => { location.hash = x ? `${base}/${encodeURIComponent(x)}` : base; };
   if (!st.data) return <Loading />;
   const { instances, engines } = st.data;
   const reload = () => st.reload({ silent: true });
-  if (!instances.length) return <div className="fade-in" style={{ paddingTop: 16 }}><EnginePicker engines={engines} first onClose={reload} go={go} /></div>;
+  const takeOver = <button type="button" className="link-btn small" onClick={() => setImporting(true)}><Truck size={12} />{t('Take over from another computer …')}</button>;
+  const importDialog = importing && <ImportDialog onClose={() => { setImporting(false); reload(); }} go={go} />;
+  if (!instances.length) return <div className="fade-in stack" style={{ paddingTop: 16 }}><EnginePicker engines={engines} first onClose={reload} go={go} /><div>{takeOver}</div>{importDialog}</div>;
   const cur = instances.find((i) => i.id === id) || instances[0];
   const multi = instances.length > 1;
   return (
@@ -377,7 +519,9 @@ export default function MailServer({ id, base = '/mail/server' }) {
         <AddTile onClick={() => setAdding(true)} title={t('Another mail server')} chips={engines.filter((e) => e.supported).map((e) => ({ label: e.label, color: (ENGINE_STYLE[e.id] || {}).color }))} />
       </div>
       <Detail key={cur.id} info={cur} reload={reload} multi={multi || !cur.configured} go={go} vault={st.data.vault} />
+      <div className="mt">{takeOver}</div>
       {adding && <EnginePicker engines={engines} onClose={() => { setAdding(false); reload(); }} go={go} />}
+      {importDialog}
     </div>
   );
 }

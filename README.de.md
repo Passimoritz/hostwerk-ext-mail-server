@@ -13,6 +13,9 @@ Echte Postfächer mit eigener Domain: Stalwart oder Apache James – Einrichtung
 - Zwei Programme zur Wahl, mit Vor- und Nachteilen
 - Postfächer, Weiterleitungen und Testmail
 - Alle DNS-Einträge (MX, SPF, DKIM, DMARC, Autoconfig) zum Kopieren, mit Zweck
+- Mit der Erweiterung „DNS-Verwaltung“: Einträge per Klick beim DNS-Anbieter setzen – mit Vorschau, was schon steht, und Prüfung, ob sie draußen ankommen
+- Sicherungen der Postfächer (jetzt sichern, zurückspielen – der aktuelle Stand wird vorher gesichert), auch in Hostwerks Sicherungs-Zentrale und in der externen Sicherung (ab Hostwerk 2.12)
+- Umziehen auf einen anderen Rechner: Sicherung dort mit „Von einem anderen Rechner übernehmen“ einspielen
 - „Kommen deine Mails an?“: Port 25 nach außen, Reverse-DNS der öffentlichen Adresse und bekannte DNS-Blacklists – mit dem, was zu tun ist, wenn etwas nicht stimmt
 - Postfach-Passwörter direkt in den Passwort-Tresor (mit der Erweiterung „Passwörter“)
 - Einstellungen fürs Mailprogramm
@@ -27,7 +30,7 @@ Native Erweiterungen laufen als Teil von Hostwerk (eigener Server- und Oberfläc
 
 ## Daten
 
-`settings.mailservers, data/mailserver` – genau dort, wo Hostwerk sie schon immer abgelegt hat. Entfernen der Erweiterung löscht nichts.
+`settings.mailservers, data/mailserver`, Sicherungen in `data/mailserver-backups/<server>/` – genau dort, wo Hostwerk sie schon immer abgelegt hat. Entfernen der Erweiterung löscht nichts.
 
 ## Entwickeln
 

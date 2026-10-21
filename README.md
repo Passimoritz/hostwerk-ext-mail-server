@@ -13,6 +13,9 @@ Real mailboxes with your own domain: Stalwart or Apache James – setup, mailbox
 - Two engines to choose from, with pros and cons
 - Mailboxes, aliases and a test mail
 - Every DNS record (MX, SPF, DKIM, DMARC, autoconfig) ready to copy, with what it is for
+- With the extension “DNS management”: set the records at your DNS provider with one click – with a preview of what is already there and a check whether they arrive outside
+- Backups of the mailboxes (back up now, restore – the current state is backed up first), also in Hostwerk’s backup centre and the off-site backup (Hostwerk 2.12 or newer)
+- Moving to another computer: take a backup over there with “Take over from another computer”
 - “Will your mail arrive?”: outgoing port 25, reverse DNS of the public address and common DNS blacklists – with what to do if something is wrong
 - Mailbox passwords straight into the password vault (with the extension “Passwords”)
 - Settings for the mail program
@@ -27,7 +30,7 @@ Native extensions run as part of Hostwerk (own server and interface part). That 
 
 ## Data
 
-`settings.mailservers, data/mailserver` – exactly where Hostwerk always kept it. Removing the extension deletes nothing.
+`settings.mailservers, data/mailserver`, backups in `data/mailserver-backups/<server>/` – exactly where Hostwerk always kept it. Removing the extension deletes nothing.
 
 ## Develop
 
