@@ -13,6 +13,8 @@ Echte Postfächer mit eigener Domain: Stalwart oder Apache James – Einrichtung
 - Zwei Programme zur Wahl, mit Vor- und Nachteilen
 - Postfächer, Weiterleitungen und Testmail
 - Alle DNS-Einträge (MX, SPF, DKIM, DMARC, Autoconfig) zum Kopieren, mit Zweck
+- „Kommen deine Mails an?“: Port 25 nach außen, Reverse-DNS der öffentlichen Adresse und bekannte DNS-Blacklists – mit dem, was zu tun ist, wenn etwas nicht stimmt
+- Postfach-Passwörter direkt in den Passwort-Tresor (mit der Erweiterung „Passwörter“)
 - Einstellungen fürs Mailprogramm
 - Ports, die sich nie in die Quere kommen, Start mit Hostwerk
 - Sicherheits-Updates für Stalwart: Patch-Versionen kommen mit Hostwerks Sicherheits-Updates – erst ausprobiert, bei einem Fehler bleibt die vorige Version (ab Hostwerk 2.11)

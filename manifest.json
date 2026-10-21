@@ -9,7 +9,7 @@
     "de": "Echte Postfächer mit eigener Domain: Stalwart oder Apache James – Einrichtung, Postfächer, DKIM/SPF/DMARC mit allen DNS-Einträgen zum Kopieren, Einstellungen fürs Mailprogramm und Testmail. Der Mail-Fänger zum Entwickeln bleibt in Hostwerk.",
     "en": "Real mailboxes with your own domain: Stalwart or Apache James – setup, mailboxes, DKIM/SPF/DMARC with every DNS record to copy, mail program settings and a test mail. The mail catcher for development stays in Hostwerk."
   },
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "Hostwerk",
   "homepage": "https://github.com/Passimoritz/hostwerk-ext-mail-server",
   "license": "MIT",
@@ -30,12 +30,23 @@
       "de": "Echte Postfächer für deine Domain.",
       "en": "Real mailboxes for your domain."
     },
-    "icon": "server"
+    "icon": "server",
+    "nav": {
+      "group": "server"
+    }
   },
   "backend": "server/index.js",
   "ui": "ui/index.js",
   "screenshots": [
     "docs/screenshot.png",
     "docs/screenshot.de.png"
+  ],
+  "allowExtensions": {
+    "*": [
+      "tabs"
+    ]
+  },
+  "uses": [
+    "passwordVault"
   ]
 }

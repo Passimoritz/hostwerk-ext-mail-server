@@ -13,6 +13,8 @@ Real mailboxes with your own domain: Stalwart or Apache James – setup, mailbox
 - Two engines to choose from, with pros and cons
 - Mailboxes, aliases and a test mail
 - Every DNS record (MX, SPF, DKIM, DMARC, autoconfig) ready to copy, with what it is for
+- “Will your mail arrive?”: outgoing port 25, reverse DNS of the public address and common DNS blacklists – with what to do if something is wrong
+- Mailbox passwords straight into the password vault (with the extension “Passwords”)
 - Settings for the mail program
 - Ports that never clash, start with Hostwerk
 - Security updates for Stalwart: patch versions arrive with Hostwerk's security updates – tried out first, the previous version stays if the new one fails (Hostwerk 2.11 or newer)

@@ -1,0 +1,5 @@
+/* Mailserver: nur was Hostwerks Baukasten nicht hat – Größen aus der Design-Skala */
+.mail-search { width: 180px; max-width: 100%; }
+.mail-min { min-width: 0; }
+.mail-gap { margin-left: var(--sp-2); }
+.mail-delivery { gap: var(--sp-2); }

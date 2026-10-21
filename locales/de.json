@@ -225,5 +225,41 @@
   "Test from Hostwerk": "Test aus Hostwerk",
   "This message was sent by Hostwerk through your own mail server.": "Diese Nachricht wurde von Hostwerk über deinen eigenen Mailserver verschickt.",
   "{name} does not run with Stalwart {v}.": "{name} läuft mit Stalwart {v} nicht.",
-  "$patterns": [["info@{}", "info@{}"], ["mail.{}", "mail.{}"]]
+  "Will your mail arrive?": "Kommen deine Mails an?",
+  "Three things decide whether other servers accept your mail: outgoing port 25 must be open, the public address must point back to your mail host name (reverse DNS, set at your provider) and the address must not be on a blacklist.": "Drei Dinge entscheiden, ob andere Server deine Mails annehmen: Port 25 muss nach außen offen sein, die öffentliche Adresse muss auf den Namen deines Mailservers zurückzeigen (Reverse-DNS, stellt dein Anbieter ein) und die Adresse darf auf keiner Blacklist stehen.",
+  "Check": "Prüfen",
+  "Checks port 25, reverse DNS and common blacklists for {host}.": "Prüft Port 25, Reverse-DNS und bekannte Blacklists für {host}.",
+  "no answer": "keine Antwort",
+  "fine": "in Ordnung",
+  "problem": "Problem",
+  "Outgoing port 25": "Port 25 nach außen",
+  "open": "offen",
+  "blocked": "gesperrt",
+  "Your connection blocks outgoing port 25 (common for home connections). Mail then only leaves through a relay: the sending server of your internet provider or a mail service (port 587 with sign-in) – set it as “smarthost” in the mail server's administration.": "Dein Anschluss sperrt Port 25 nach außen (bei Heimanschlüssen üblich). Mails gehen dann nur über einen Relay hinaus: den Postausgangsserver deines Internetanbieters oder eines Maildienstes (Port 587 mit Anmeldung) – trag ihn in der Verwaltung des Mailservers als „Smarthost“ ein.",
+  "Reverse DNS": "Reverse-DNS",
+  "no A record": "kein A-Eintrag",
+  "The address {ip} should point back to {host}. Your internet or server provider sets this “PTR record” – often in the customer area under reverse DNS.": "Die Adresse {ip} sollte auf {host} zurückzeigen. Diesen „PTR-Eintrag“ setzt dein Internet- oder Server-Anbieter – oft im Kundenbereich unter Reverse-DNS.",
+  "{host} has no A record yet – add it at your domain provider.": "{host} hat noch keinen A-Eintrag – leg ihn bei deinem Domain-Anbieter an.",
+  "no clear answer": "keine klare Antwort",
+  "listed": "gelistet",
+  "not listed": "nicht gelistet",
+  "Details": "Details",
+  "Password changed and kept in the vault": "Passwort geändert und im Tresor abgelegt",
+  "Keep the password in the vault “{name}”": "Passwort im Tresor „{name}“ ablegen",
+  "The vault is locked – unlock it under Passwords to keep the password there.": "Der Tresor ist gesperrt – entsperre ihn unter Passwörter, um das Passwort dort abzulegen.",
+  "With the extension “Passwords” Hostwerk keeps mailbox passwords in your vault.": "Mit der Erweiterung „Passwörter“ legt Hostwerk Postfach-Passwörter in deinem Tresor ab.",
+  "Install the extension “Passwords” to keep mailbox passwords in the vault.": "Installiere die Erweiterung „Passwörter“, um Postfach-Passwörter im Tresor abzulegen.",
+  "Mailbox {email}": "Postfach {email}",
+  "IMAP {host}, sending port {port} (STARTTLS)": "IMAP {host}, Postausgang Port {port} (STARTTLS)",
+  "Mailbox not found": "Postfach nicht gefunden",
+  "$patterns": [
+    [
+      "info@{}",
+      "info@{}"
+    ],
+    [
+      "mail.{}",
+      "mail.{}"
+    ]
+  ]
 }
