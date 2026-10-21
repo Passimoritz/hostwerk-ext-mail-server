@@ -15,6 +15,7 @@ const path = require('path');
 const crypto = require('crypto');
 const dns = require('dns').promises;
 const { execFile } = require('child_process');
+const delivery = require('./delivery');
 // Hostwerk's core helpers – bound once at start by bindCore(host) (see server/index.js)
 let ManagedProcess; let registry; let fetchJson; let downloadFile; let extractZip; let jobProgress; let cmpVersion; let runJob;
 let probe; let BLOCK_HINT; let isPortFree; let findFreePort; let waitForPort; let IS_WIN; let X; let elevated; let secrets; let sendRaw;
@@ -734,15 +735,38 @@ class MailServerService {
   }
   async removeDomain(id, domainId) { const i = this.get(id); await i.impl.removeDomain(i, domainId); return this.domains(id); }
   async accounts(id) { const i = this.get(id); return i.impl.accounts(i); }
-  async addAccount(id, { name, domainId, password, description }) {
+  async addAccount(id, { name, domainId, password, description, vault }) {
     const i = this.get(id);
     name = String(name || '').trim().toLowerCase();
     if (!NAME_RE.test(name)) throw new Error(T('Invalid name before the @ (allowed: a–z, 0–9, . _ + -).'));
     pwCheck(password);
     await i.impl.addAccount(i, { name, domainId, password, description });
-    return this.accounts(id);
+    const list = await this.accounts(id);
+    if (vault) { const a = list.find((x) => String(x.email || '').startsWith(`${name}@`)); if (a) await this.toVault(i, a.email, password); }
+    return list;
   }
-  async setPassword(id, accId, password) { pwCheck(password); const i = this.get(id); await i.impl.setPassword(i, accId, password); return { ok: true }; }
+  async setPassword(id, accId, password, { vault = false } = {}) {
+    pwCheck(password); const i = this.get(id); await i.impl.setPassword(i, accId, password);
+    if (vault) { const a = (await this.accounts(id)).find((x) => x.id === accId); if (a && a.email) await this.toVault(i, a.email, password); }
+    return { ok: true };
+  }
+  /**
+   * Mailbox password into the password vault (extension "Passwords", service passwordVault): one entry per mailbox,
+   * a new password replaces the old one (which stays in the history). Without the extension: a clear message.
+   */
+  async toVault(inst, email, password) {
+    const v = this.ctx.passwordVault;
+    if (!v || typeof v.save !== 'function') throw Object.assign(new Error(T('Install the extension “Passwords” to keep mailbox passwords in the vault.')), { status: 409 });
+    const c = inst.cfg;
+    return v.save({ source: 'mail-server', key: `mailbox:${email}`, name: T('Mailbox {email}', { email }), username: email, password, url: c.hostname ? `imaps://${c.hostname}` : '', notes: T('IMAP {host}, sending port {port} (STARTTLS)', { host: c.hostname || '–', port: (c.ports && c.ports.submission) || 587 }), folder: 'Hostwerk/Mail' });
+  }
+  vaultStatus() { try { const v = this.ctx.passwordVault; return v && v.status ? v.status() : null; } catch { return null; } }
+  /** Will mail arrive? Outgoing port 25, reverse DNS of the public address, DNS blacklists (server/delivery.js). */
+  async deliveryCheck(id) {
+    const c = this.get(id).cfg;
+    if (!c.hostname) throw Object.assign(new Error(T('The mail server is not set up yet.')), { status: 409 });
+    return delivery.check(c.hostname);
+  }
   async removeAccount(id, accId) { const i = this.get(id); await i.impl.removeAccount(i, accId); return this.accounts(id); }
 
   /** Check the DNS records of the domain against the real DNS. */
@@ -773,7 +797,7 @@ class MailServerService {
     return { ok: true };
   }
 
-  overview() { return { instances: [...this.items.values()].map((i) => i.info()), engines: this.available() }; }
+  overview() { return { instances: [...this.items.values()].map((i) => i.info()), engines: this.available(), vault: this.vaultStatus() }; }
 
   routes(r) {
     const I = (req) => req.params.id;
@@ -802,7 +826,9 @@ class MailServerService {
     r.get('/mailservers/:id/domains/:d/dns-check', async (req, res) => res.json(await this.checkDns(I(req), req.params.d)));
     r.get('/mailservers/:id/accounts', async (req, res) => res.json(await this.accounts(I(req))));
     r.post('/mailservers/:id/accounts', async (req, res) => res.json(await this.addAccount(I(req), req.body || {})));
-    r.put('/mailservers/:id/accounts/:a/password', async (req, res) => res.json(await this.setPassword(I(req), req.params.a, (req.body || {}).password)));
+    r.put('/mailservers/:id/accounts/:a/password', async (req, res) => res.json(await this.setPassword(I(req), req.params.a, (req.body || {}).password, { vault: !!(req.body || {}).vault })));
+    r.post('/mailservers/:id/accounts/:a/vault', async (req, res) => { const i = this.get(I(req)); const a = (await this.accounts(I(req))).find((x) => x.id === req.params.a); if (!a) throw Object.assign(new Error(T('Mailbox not found')), { status: 404 }); res.json(await this.toVault(i, a.email, String((req.body || {}).password || ''))); });
+    r.get('/mailservers/:id/delivery-check', async (req, res) => res.json(await this.deliveryCheck(I(req))));
     r.delete('/mailservers/:id/accounts/:a', async (req, res) => res.json(await this.removeAccount(I(req), req.params.a)));
     r.post('/mailservers/:id/test', async (req, res) => res.json(await this.testMail(I(req), req.body || {})));
   }
