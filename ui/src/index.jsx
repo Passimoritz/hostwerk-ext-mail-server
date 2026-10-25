@@ -1,5 +1,6 @@
 import { Server } from 'lucide-react';
 import MailServer from './MailServer';
+import { openNew } from '@hostwerk/kit';
 
 /*
  * Mail server: its own page (#/ext/mail-server) and the tab "Mail server" in Hostwerk's mail area (slot "mail.tabs",
@@ -23,5 +24,9 @@ function MailTab({ sub }) { return <MailServer id={sub} base="/mail/server" />; 
 
 export default {
   pages: { main: MailServerPage },
-  slots: { 'mail.tabs': [{ id: 'server', title: 'Mail server', icon: Server, Component: MailTab, order: 20 }] },
+  slots: {
+    'mail.tabs': [{ id: 'server', title: 'Mail server', icon: Server, Component: MailTab, order: 20 }],
+    // Hostwerks Menü „Neu“ → Abschnitt „Dienste“, ausgeblendet mit dem Bereich „mail“
+    'new.items': [{ id: 'mailserver', section: 'dienste', area: 'mail', title: 'Mail server', hint: 'Real mailboxes (Stalwart, James)', icon: Server, color: '#db2777', keys: 'mail imap smtp postfach', onClick: () => openNew('mailserver', '/mail/server') }],
+  },
 };

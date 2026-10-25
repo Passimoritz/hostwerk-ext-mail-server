@@ -23,6 +23,21 @@ function activate(host) {
   const svc = new MailServerService(host);
   host.provide('mailserver', svc);
   svc.routes(host.router);
+  // Logo der Software und Änderungsprotokoll (SDK 3.5) – bis Hostwerk 3.1 im Kern
+  if (typeof host.contribute === 'function') {
+    const PAGE = { stalwart: 'https://stalw.art', james: 'https://james.apache.org' };
+    host.contribute('releaseNotes', { sources: require('./releasenotes').sources });
+    host.contribute('advisor', { kind: 'mail', label: 'Mailserver', start: /postfach|postfächer|imap|e-?mail-adresse|eigene mail|mailserver/i, open: { id: 'mailserver', route: '/mail/server' } }); // Berater
+    host.contribute('clickguard', { block: [/^\/mailservers\/[^/]+\/test/] }); // Klick-Test: Mail nach außen
+    host.contribute('icons', { kind: 'mail', sources: (id) => { try { const m = svc.get(id); const engine = (m && (m.engine || (m.cfg && m.cfg.engine))) || 'stalwart'; return PAGE[engine] ? [{ url: PAGE[engine] }] : []; } catch { return []; } } });
+    host.contribute('audit', { routes: [[/^\/mailservers\/([^/]+)\/(start|stop|restart)$/, (m) => ({ kind: 'Mailserver', target: m[1], action: { start: 'gestartet', stop: 'gestoppt', restart: 'neu gestartet' }[m[2]] })]] });
+  }
+  // Public mail servers: their ports go into Hostwerk's firewall and router automation (until 3.1 the core read them itself)
+  const sec = host.ctx.security;
+  if (sec && typeof sec.addPortProvider === 'function') {
+    sec.addPortProvider('mail-server', () => svc.configured().filter((i) => i.cfg.public && i.cfg.ports).flatMap((i) => ['smtp', 'submission', 'submissions', 'imaps', 'pop3s'].filter((k) => Number.isInteger(i.cfg.ports[k])).map((k) => ({ port: i.cfg.ports[k], label: `Mailserver (${k})` }))));
+    host.on('shutdown', () => { if (sec.removePortProvider) sec.removePortProvider('mail-server'); });
+  }
   // Autostart: after the databases, before the web servers (Hostwerk runs extension tasks in that group)
   host.on('autostart', (want) => svc.configured().filter((i) => want(i.cfg.autostart, i.proc.id)).map((i) => () => i.start()));
   // Security updates for Stalwart (patch versions with trial run and fallback) – Hostwerk 2.11+ offers patchUpdates.register()

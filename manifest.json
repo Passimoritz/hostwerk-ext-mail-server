@@ -47,5 +47,10 @@
   "uses": [
     "passwordVault",
     "dns"
-  ]
+  ],
+  "data": {
+    "settings": [
+      "mailservers"
+    ]
+  }
 }
