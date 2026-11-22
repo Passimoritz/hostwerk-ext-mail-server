@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Server, Download, Globe, Laptop, Users, Globe2, Plug, Send, Plus, Trash2, KeyRound, Copy, ExternalLink, CheckCircle2, XCircle, RefreshCw, Eye, Wand2, AlertTriangle, Check, X, Pencil, Coffee, Feather, Archive, RotateCcw, Truck, Puzzle, ShieldCheck } from 'lucide-react';
+import { Server, Download, Globe, Laptop, Users, Globe2, Plug, Send, Plus, Trash2, KeyRound, Copy, ClipboardList, ExternalLink, CheckCircle2, XCircle, RefreshCw, Eye, Wand2, AlertTriangle, Check, X, Pencil, Coffee, Feather, Archive, RotateCcw, Truck, Puzzle, ShieldCheck } from 'lucide-react';
 import { get, post, put, del, useApi, useStore, waitJob, openExternal, fmtBytes, fmtDate } from '@hostwerk/api';
 import { Btn, Tabs, Field, Seg, Callout, Empty, Loading, Modal, Progress, StatusPill, toast, confirmDialog, promptDialog, InfoTip } from '@hostwerk/ui';
 import { useNew, ServiceButtons, ProcStats, AddTile, SvcImage, CompareButton, NotesButton } from '@hostwerk/kit';
 import { t } from '@hostwerk/i18n';
+import { showDomain } from './idn';
 import './style.css';
 
 /*
@@ -36,8 +37,9 @@ function EnginePicker({ engines, first, onClose, go }) {
                 {engine === e.id && <CheckCircle2 size={18} style={{ color: st.color }} />}
               </div>
               <div className="small muted" style={{ textAlign: 'left' }}>{e.text}</div>
-              <ul className="compare-list pros">{e.pros.map((p) => <li key={p}><Check />{p}</li>)}</ul>
-              <ul className="compare-list cons">{e.cons.map((p) => <li key={p}><X />{p}</li>)}</ul>
+              {/* left-aligned like the text above – inside a button, wrapped lines would otherwise be centred */}
+              <ul className="compare-list pros" style={{ textAlign: 'left' }}>{e.pros.map((p) => <li key={p}><Check />{p}</li>)}</ul>
+              <ul className="compare-list cons" style={{ textAlign: 'left' }}>{e.cons.map((p) => <li key={p}><X />{p}</li>)}</ul>
             </button>
           );
         })}
@@ -93,7 +95,7 @@ function Setup({ info, onDone, onCancel }) {
   return (
     <div className="grid grid-2">
       <div className="card">
-        <div className="card-head"><Wand2 size={16} /><h3>{t('{name}: setup', { name: info.name })}</h3><span className="badge" style={{ marginLeft: 6 }}>{info.engineLabel}</span></div>
+        <div className="card-head"><Wand2 size={16} /><h3 className="ellipsis mail-min" title={info.name}>{t('{name}: setup', { name: info.name })}</h3><span className="badge" style={{ marginLeft: 6 }}>{info.engineLabel}</span></div>
         <div className="card-body stack" style={{ gap: 12 }}>
           <div className="small muted">{james
             ? t('Hostwerk sets up Apache James – with SMTP, IMAP, POP3, TLS (self-signed) and a DKIM signature per domain. Java is downloaded automatically when needed.')
@@ -160,10 +162,10 @@ function Accounts({ info, vault }) {
       {list.map((a) => (
         <div key={a.id} className="list-item">
           <div className="ico"><Users /></div>
-          <div className="grow mail-min"><div className="bold ellipsis">{a.email}</div><div className="small muted">{a.admin ? t('Administrator') : t('Mailbox')}{a.description ? ` · ${a.description}` : ''}</div></div>
+          <div className="grow mail-min"><div className="bold ellipsis" title={showDomain(a.email)}>{showDomain(a.email)}</div><div className="small muted">{a.admin ? t('Administrator') : t('Mailbox')}{a.description ? ` · ${a.description}` : ''}</div></div>
           <button type="button" className="btn ghost xs icon" title="Copy address" aria-label="Copy address" onClick={() => copy(a.email)}><Copy /></button>
-          <Btn className="xs ghost" icon={KeyRound} onClick={async () => { const pw = await promptDialog({ title: t('New password for {email}', { email: a.email }), label: 'Password (at least 8 characters)', value: genPw() }); if (pw) { try { await put(`${B}/accounts/${encodeURIComponent(a.id)}/password`, { password: pw, vault: canVault }); toast.success(canVault ? 'Password changed and kept in the vault' : 'Password changed'); } catch (e) { toast.error(e); } } }}>Password</Btn>
-          {!a.admin && <button type="button" className="btn ghost xs icon" title="Delete" aria-label="Delete" onClick={async () => { if (await confirmDialog({ title: t('Delete {email}?', { email: a.email }), text: 'The mailbox and every mail in it are deleted for good.', confirm: 'Delete', danger: true })) { try { acc.setData(await del(`${B}/accounts/${encodeURIComponent(a.id)}`)); } catch (e) { toast.error(e); } } }}><Trash2 /></button>}
+          <Btn className="xs ghost" icon={KeyRound} onClick={async () => { const pw = await promptDialog({ title: t('New password for {email}', { email: showDomain(a.email) }), label: 'Password (at least 8 characters)', value: genPw() }); if (pw) { try { await put(`${B}/accounts/${encodeURIComponent(a.id)}/password`, { password: pw, vault: canVault }); toast.success(canVault ? 'Password changed and kept in the vault' : 'Password changed'); } catch (e) { toast.error(e); } } }}>Password</Btn>
+          {!a.admin && <button type="button" className="btn ghost xs icon" title="Delete" aria-label="Delete" onClick={async () => { if (await confirmDialog({ title: t('Delete {email}?', { email: showDomain(a.email) }), text: 'The mailbox and every mail in it are deleted for good.', confirm: 'Delete', danger: true })) { try { acc.setData(await del(`${B}/accounts/${encodeURIComponent(a.id)}`)); } catch (e) { toast.error(e); } } }}><Trash2 /></button>}
         </div>
       ))}
       {f && (
@@ -171,14 +173,14 @@ function Accounts({ info, vault }) {
           <div className="form-grid">
             <Field label="Address" className="span-2">
               <div className="row-tight"><input className="input" autoFocus placeholder="info" aria-label="Name before the @" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value.trim().toLowerCase() })} onKeyDown={(e) => e.key === 'Enter' && f.name && add()} /><span>@</span>
-                <select className="select" aria-label="Domain" value={f.domainId} onChange={(e) => setF({ ...f, domainId: e.target.value })}>{doms.data.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
+                <select className="select" aria-label="Domain" value={f.domainId} onChange={(e) => setF({ ...f, domainId: e.target.value })}>{doms.data.map((d) => <option key={d.id} value={d.id}>{showDomain(d.name)}</option>)}</select></div>
             </Field>
             <Field label="Password" className="span-2" hint="For signing in from the mail program – at least 8 characters.">
               <div className="row-tight"><input className="input mono" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /><button type="button" className="btn ghost sm icon" title="Create a new one" aria-label="Create a new one" onClick={() => setF({ ...f, password: genPw() })}><RefreshCw /></button><button type="button" className="btn ghost sm icon" title="Copy" aria-label="Copy" onClick={() => copy(f.password)}><Copy /></button></div>
             </Field>
             {info.engine === 'stalwart' && <Field label="Description (optional)" className="span-2"><input className="input" value={f.description || ''} onChange={(e) => setF({ ...f, description: e.target.value })} /></Field>}
           </div>
-          <div className="small muted mt">{t('Sign-in name in the mail program:')} <code>{f.name || 'name'}@{domName(f.domainId)}</code></div>
+          <div className="small muted mt">{t('Sign-in name in the mail program:')} <code>{f.name || 'name'}@{showDomain(domName(f.domainId))}</code></div>
           {vault && vault.available ? (
             <label className="check small mt"><input type="checkbox" checked={!!f.vault} disabled={!canVault} onChange={(e) => setF({ ...f, vault: e.target.checked })} />{canVault ? t('Keep the password in the vault “{name}”', { name: vault.vault.name }) : t('The vault is locked – unlock it under Passwords to keep the password there.')}</label>
           ) : <div className="tiny muted mt">{t('With the extension “Passwords” Hostwerk keeps mailbox passwords in your vault.')}</div>}
@@ -237,15 +239,16 @@ function Domains({ info }) {
         const c = check[d.id];
         return (
           <div key={d.id} className="card">
-            <div className="card-head"><Globe2 size={16} /><h3>{d.name}</h3>
+            <div className="card-head"><Globe2 size={16} /><h3 className="ellipsis mail-min" title={showDomain(d.name)}>{showDomain(d.name)}</h3>
               {c && <span className={`badge ${Object.values(c).every(Boolean) ? 'ok' : 'warn'}`}>{t('{n}/{all} found', { n: Object.values(c).filter(Boolean).length, all: Object.keys(c).length })}</span>}
               <div className="right row-tight">
                 <Btn className="xs" icon={RefreshCw} busy={busy === d.id} onClick={() => runCheck(d)}>Check DNS</Btn>
                 <Btn className="xs ghost" icon={Copy} onClick={() => copy(d.zone)}>Copy as zone file</Btn>
-                {doms.data.length > 1 && <Btn className="ghost xs icon" icon={Trash2} title="Remove domain" aria-label="Remove domain" onClick={async () => { if (await confirmDialog({ title: t('Remove {name}?', { name: d.name }), text: 'The domain is removed from the mail server.', confirm: 'Remove', danger: true })) { try { doms.setData(await del(`${B}/domains/${encodeURIComponent(d.id)}`)); } catch (e) { toast.error(e); } } }} />}
+                {doms.data.length > 1 && <Btn className="ghost xs icon" icon={Trash2} title="Remove domain" aria-label="Remove domain" onClick={async () => { if (await confirmDialog({ title: t('Remove {name}?', { name: showDomain(d.name) }), text: 'The domain is removed from the mail server.', confirm: 'Remove', danger: true })) { try { doms.setData(await del(`${B}/domains/${encodeURIComponent(d.id)}`)); } catch (e) { toast.error(e); } } }} />}
               </div>
             </div>
-            <table className="table">
+            {/* Scrolls sideways in narrow windows – otherwise the copy buttons end up outside the card (1024 px) */}
+            <div className="table-wrap"><table className="table">
               <thead><tr><th style={{ width: 28 }} /><th>Purpose</th><th>Type</th><th>Name</th><th>Value</th><th /></tr></thead>
               <tbody>
                 {d.records.map((r) => {
@@ -255,19 +258,19 @@ function Domains({ info }) {
                       <td>{ok == null ? null : ok ? <CheckCircle2 size={15} className="c-ok" aria-label="found" /> : <XCircle size={15} className={r.required ? 'c-err' : 'muted'} aria-label="missing" />}</td>
                       <td className="small">{r.purpose}{r.required && <span className="badge mail-gap">Required</span>}</td>
                       <td className="mono small">{r.type}</td>
-                      <td className="mono small ellipsis" style={{ maxWidth: 220 }} title={r.name}>{r.name}</td>
-                      <td className="mono small ellipsis" style={{ maxWidth: 360 }} title={r.value}>{r.value}</td>
-                      <td><button type="button" className="btn ghost xs icon" title="Copy value" aria-label="Copy value" onClick={() => copy(r.value)}><Copy /></button></td>
+                      <td className="mono small ellipsis" style={{ maxWidth: 'min(220px, 16vw)' }} title={r.name}>{r.name}</td>
+                      <td className="mono small ellipsis" style={{ maxWidth: 'min(360px, 24vw)' }} title={r.value}>{r.value}</td>
+                      <td className="mail-copy-cell"><button type="button" className="btn ghost xs icon" title="Copy value" aria-label="Copy value" onClick={() => copy(r.value)}><Copy /></button><button type="button" className="btn ghost xs icon" title="Copy all values (name, type, value)" aria-label="Copy all values (name, type, value)" onClick={() => copy(`${r.name}\t${r.type}\t${r.value}`)}><ClipboardList /></button></td>
                     </tr>
                   );
                 })}
               </tbody>
-            </table>
+            </table></div>
           </div>
         );
       })}
       <Delivery info={info} />
-      <div><Btn icon={Plus} onClick={async () => { const n = await promptDialog({ title: 'Another domain', label: 'Domain (e.g. seconddomain.com)' }); if (n) { try { doms.setData(await post(`${B}/domains`, { name: n })); toast.success(t('{name} added – a DKIM key was created', { name: n })); } catch (e) { toast.error(e); } } }}>Another domain</Btn></div>
+      <div><Btn icon={Plus} onClick={async () => { const n = await promptDialog({ title: 'Another domain', label: 'Domain (e.g. seconddomain.com)' }); if (n) { try { doms.setData(await post(`${B}/domains`, { name: n })); toast.success(t('{name} added – a DKIM key was created', { name: n.trim() })); } catch (e) { toast.error(e); } } }}>Another domain</Btn></div>
     </div>
   );
 }
@@ -323,8 +326,8 @@ function DnsAuto({ info }) {
       </div>
       {st.data.domains.map((d) => (
         <div key={d.name} className="card-body stack mail-dns-auto">
-          <b className="small">{d.name}</b>
-          {!d.zone ? <Callout kind="warn">{t('No DNS account in “DNS management” holds the zone of {name} yet – add the account there first.', { name: d.name })}</Callout> : d.records.map((r) => (
+          <b className="small">{showDomain(d.name)}</b>
+          {!d.zone ? <Callout kind="warn">{t('No DNS account in “DNS management” holds the zone of {name} yet – add the account there first.', { name: showDomain(d.name) })}</Callout> : d.records.map((r) => (
             <label key={r.key} className="check small row-tight">
               <input type="checkbox" checked={chosen.has(r.key)} onChange={() => toggle(r.key)} aria-label={t('{type} record {name}', { type: r.type, name: r.name })} />
               <span className="mono mail-dns-type">{r.type}</span>
@@ -410,11 +413,16 @@ function ImportDialog({ onClose, go }) {
 }
 
 /* ------------------------------------------------------------------ connection & test */
+const OTHER = '*other*'; // "Other address …" in the sender list (never a mail address: it has no @)
 function Connect({ info }) {
   const host = info.public ? info.hostname : '127.0.0.1';
   const p = info.ports;
   const [m, setM] = useState({ from: '', password: '', to: '' });
   const [busy, setBusy] = useState(false);
+  // Sender from the mailboxes of this server (fewer typos); free input stays for addresses the list does not know
+  const acc = useApi(`/mailservers/${info.id}/accounts`);
+  const boxes = (acc.data || []).map((a) => a.email);
+  const own = !boxes.length || (m.from && !boxes.includes(m.from)) || m.from === null;
   const rows = [
     ['Inbox (IMAP)', host, p.imaps, 'SSL/TLS'], ['Inbox (IMAP, alternative)', host, p.imap, 'STARTTLS'],
     ['Outgoing (SMTP)', host, p.submissions, 'SSL/TLS'], ['Outgoing (SMTP, alternative)', host, p.submission, 'STARTTLS'],
@@ -424,16 +432,22 @@ function Connect({ info }) {
     <div className="grid grid-2">
       <div className="card">
         <div className="card-head"><Plug size={16} /><h3>Settings for the mail program</h3></div>
-        <table className="table">
+        <div className="table-wrap"><table className="table">
           <thead><tr><th>Service</th><th>Server</th><th>Port</th><th>Security</th></tr></thead>
           <tbody>{rows.map(([l, h, port, sec]) => <tr key={l}><td className="small">{l}</td><td className="mono small">{h}</td><td className="mono small">{port} <button type="button" className="btn ghost xs icon" title="Copy" aria-label="Copy" onClick={() => copy(String(port))}><Copy /></button></td><td className="small">{sec}</td></tr>)}</tbody>
-        </table>
+        </table></div>
         <div className="card-body small muted">{t('The user name is always the complete e-mail address.')} {info.public && info.engine === 'stalwart' ? t('Mail programs like Thunderbird and Outlook find these settings on their own thanks to the autoconfig records.') : t('The server uses a self-signed certificate – the mail program asks once whether you trust it.')}</div>
       </div>
       <div className="card">
         <div className="card-head"><Send size={16} /><h3>Send a test mail</h3></div>
         <div className="card-body stack" style={{ gap: 10 }}>
-          <Field label="Sender mailbox"><input className="input" placeholder={`info@${info.domain}`} value={m.from} onChange={(e) => setM({ ...m, from: e.target.value.trim() })} /></Field>
+          <Field label="Sender mailbox">{own
+            ? <input className="input" placeholder={`info@${showDomain(info.domain)}`} value={m.from || ''} onChange={(e) => setM({ ...m, from: e.target.value.trim() })} />
+            : <select className="select" aria-label="Sender mailbox" value={m.from} onChange={(e) => setM({ ...m, from: e.target.value === OTHER ? null : e.target.value })}>
+                <option value="">{t('Choose a mailbox …')}</option>
+                {boxes.map((b) => <option key={b} value={b}>{showDomain(b)}</option>)}
+                <option value={OTHER}>{t('Other address …')}</option>
+              </select>}</Field>
           <Field label="Password of the sender"><input className="input" type="password" value={m.password} onChange={(e) => setM({ ...m, password: e.target.value })} /></Field>
           <Field label="Recipient" hint="An own mailbox or – in real operation – an outside address (e.g. Gmail) to check delivery and spam rating."><input className="input" value={m.to} onChange={(e) => setM({ ...m, to: e.target.value.trim() })} /></Field>
           <div><Btn className="primary" icon={Send} busy={busy} disabled={!m.from || !m.password || !m.to} onClick={async () => { setBusy(true); try { await post(`/mailservers/${info.id}/test`, m); toast.success('The test mail was accepted and is being delivered'); } catch (e) { toast.error(e); } setBusy(false); }}>Send</Btn></div>
@@ -451,7 +465,7 @@ function Detail({ info, reload, multi, go, vault }) {
   const I = st.icon || Server;
   const B = `/mailservers/${info.id}`;
   if (!info.configured || setupAgain) {
-    return <Setup info={info} onDone={() => { setSetupAgain(false); reload(); }} onCancel={info.configured ? () => setSetupAgain(false) : multi ? async () => { await del(B); go(null); reload(); } : null} />;
+    return <Setup info={info} onDone={() => { setSetupAgain(false); reload(); }} onCancel={info.configured ? () => setSetupAgain(false) : multi ? async () => { try { await del(B); go(null); reload(); } catch (e) { toast.error(e); } } : null} />;
   }
   const running = info.proc.state === 'running';
   return (
@@ -461,13 +475,13 @@ function Detail({ info, reload, multi, go, vault }) {
           <SvcImage kind="mail" id={info.id} name={info.name} fallback={<div className="svc-icon" style={{ background: `linear-gradient(135deg, ${st.color}, ${st.color2})` }}><I /></div>} />
           <div className="grow" style={{ minWidth: 200 }}>
             <div className="bold row-tight">{info.name} <StatusPill state={info.proc.state} /></div>
-            <div className="small muted">{[info.hostname, info.domain, info.public ? t('Real operation (reachable from the internet)') : t('Test operation (this PC only)'), `${info.engineLabel} ${(info.installed && info.installed.version) || ''}`.trim()].join(' · ')}</div>
+            <div className="small muted">{[showDomain(info.hostname), showDomain(info.domain), info.public ? t('Real operation (reachable from the internet)') : t('Test operation (this PC only)'), `${info.engineLabel} ${(info.installed && info.installed.version) || ''}`.trim()].join(' · ')}</div>
             <div className="row-tight info-row">{info.engine === 'stalwart' && info.installed && <NotesButton product="stalwart" version={info.installed.version} />}<CompareButton kind="mail" current={info.engine} label={t('Compare options')} /></div>
           </div>
           <ServiceButtons base={B} state={info.proc.state} size="sm" />
           {info.adminUrl && <Btn className="sm ghost" icon={ExternalLink} disabled={!running} onClick={() => openExternal(info.adminUrl)} title="Stalwart administration: spam filter, forwarding, out-of-office, logs …">Administration</Btn>}
-          <Btn className="sm ghost" icon={Eye} onClick={async () => { const r = await get(`${B}/admin-password`); await confirmDialog({ title: r.engine === 'james' ? 'Access to the administration (WebAdmin)' : 'Admin access', text: r.engine === 'james' ? t('REST interface: {url}\nHeader “Password”: {pw}', { url: r.url, pw: r.password }) : `${r.user}\n${r.password}`, confirm: 'OK' }); }}>Admin access</Btn>
-          <label className="check small"><input type="checkbox" checked={info.autostart} onChange={async (e) => { await put(B, { autostart: e.target.checked }); reload(); }} />Start with Hostwerk</label>
+          <Btn className="sm ghost" icon={Eye} onClick={async () => { let r; try { r = await get(`${B}/admin-password`); } catch (e) { toast.error(e); return; } await confirmDialog({ title: r.engine === 'james' ? 'Access to the administration (WebAdmin)' : 'Admin access', text: r.engine === 'james' ? t('REST interface: {url}\nHeader “Password”: {pw}', { url: r.url, pw: r.password }) : `${r.user}\n${r.password}`, confirm: 'OK' }); }}>Admin access</Btn>
+          <label className="check small"><input type="checkbox" checked={info.autostart} onChange={async (e) => { try { await put(B, { autostart: e.target.checked }); reload(); } catch (err) { toast.error(err); } }} />Start with Hostwerk</label>
         </div>
         <ProcStats proc={info.proc} svc={info.proc.id} compact />
       </div>
@@ -481,9 +495,9 @@ function Detail({ info, reload, multi, go, vault }) {
         </>
       )}
       <div className="small muted mt row">
-        <button type="button" className="link-btn" onClick={async () => { const n = await promptDialog({ title: 'Rename', label: 'Name in Hostwerk', value: info.name }); if (n) { await put(B, { name: n }); reload(); } }}><Pencil size={12} />{t('Rename')}</button>
+        <button type="button" className="link-btn" onClick={async () => { const n = await promptDialog({ title: 'Rename', label: 'Name in Hostwerk', value: info.name }); if (n && n.trim()) { try { await put(B, { name: n }); reload(); } catch (e) { toast.error(e); } } }}><Pencil size={12} />{t('Rename')}</button>
         <button type="button" className="link-btn" onClick={async () => { if (await confirmDialog({ title: 'Set up the mail server again?', text: 'Every mailbox, mail and setting of this mail server is deleted and created anew.', confirm: 'Set up again', danger: true, typeToConfirm: t('DELETE') })) setSetupAgain(true); }}><RefreshCw size={12} />{t('Set up again …')}</button>
-        <button type="button" className="link-btn" onClick={async () => { if (await confirmDialog({ title: t('Remove {name}?', { name: info.name }), text: 'The mail server is stopped and deleted with every mailbox and mail. The downloaded software stays for other mail servers.', confirm: 'Remove', danger: true, typeToConfirm: t('DELETE') })) { await del(B); go(null); reload(); } }}><Trash2 size={12} />{t('Remove …')}</button>
+        <button type="button" className="link-btn" onClick={async () => { const r = await confirmDialog({ title: t('Remove {name}?', { name: info.name }), text: 'The mail server is stopped and deleted with every mailbox and mail. The downloaded software stays for other mail servers.', confirm: 'Remove', danger: true, typeToConfirm: t('DELETE'), checkbox: { label: t('Also delete its logs and backups'), checked: false } }); if (r && (r === true || r.ok)) { try { await del(r.checked ? `${B}?purge=1` : B); go(null); reload(); } catch (e) { toast.error(e); } } }}><Trash2 size={12} />{t('Remove …')}</button>
       </div>
     </div>
   );
@@ -512,7 +526,7 @@ export default function MailServer({ id, base = '/mail/server' }) {
           return (
             <button key={i.id} type="button" className={`mail-server-chip ${i.id === cur.id ? 'active' : ''}`} style={{ '--c': s.color }} onClick={() => go(i.id)} aria-pressed={i.id === cur.id}>
               <span className={`dot-state ${i.configured ? i.proc.state : 'missing'}`} />
-              <span className="grow" style={{ textAlign: 'left', minWidth: 0 }}><b className="ellipsis">{i.name}</b><span className="tiny muted ellipsis">{i.configured ? `${i.domain} · ${i.engineLabel}` : t('{engine} · not set up yet', { engine: i.engineLabel })}</span></span>
+              <span className="grow" style={{ textAlign: 'left', minWidth: 0 }}><b className="ellipsis">{i.name}</b><span className="tiny muted ellipsis">{i.configured ? `${showDomain(i.domain)} · ${i.engineLabel}` : t('{engine} · not set up yet', { engine: i.engineLabel })}</span></span>
             </button>
           );
         })}

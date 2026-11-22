@@ -140,3 +140,44 @@ test('activate registers the update source and removes it on shutdown', () => {
   for (const fn of hooks.shutdown) fn();
   assert.deepStrictEqual(reg, []);
 });
+
+test('ids: never a route or folder name, umlauts spelled out, at most 40 characters; names at most 60', () => {
+  const svc = new MailServerService(fakeHost());
+  svc.create({ engine: 'stalwart', name: 'Erster' });
+  assert.strictEqual(svc.create({ engine: 'stalwart', name: 'Install' }).id, 'install-2');
+  assert.strictEqual(svc.create({ engine: 'stalwart', name: 'Backups' }).id, 'backups-2');
+  assert.strictEqual(svc.create({ engine: 'stalwart', name: 'import' }).id, 'import-2');
+  assert.strictEqual(svc.create({ engine: 'james', name: 'Müller & Söhne – Straße' }).id, 'mueller-soehne-strasse');
+  const long = svc.create({ engine: 'stalwart', name: 'x'.repeat(300) });
+  assert.strictEqual(long.id.length, 40);
+  assert.strictEqual(long.name.length, 60);
+});
+
+test('setup takes domains with umlauts (punycode), test mail checks the addresses before anything is sent', async () => {
+  const host = fakeHost();
+  const svc = new MailServerService(host);
+  const { id } = svc.create({ engine: 'stalwart', name: 'A' });
+  assert.throws(() => svc.setup(id, { domain: 'kein domain' }), /valid domain/);
+  assert.doesNotThrow(() => svc.setup(id, { domain: 'Müller.de' }));
+  await assert.rejects(svc.testMail(id, { from: 'a@b.de', password: 'x', to: 'c@d.de' }), (e) => e.status === 409);
+  Object.assign(svc.get(id).cfg, { configured: true, ports: { submission: 5587 }, hostname: 'mail.b.de' });
+  svc.get(id).proc.state = 'running';
+  await assert.rejects(svc.testMail(id, { from: 'a@b.de\r\nBcc: x@y.z', password: 'x', to: 'c@d.de' }), (e) => e.status === 400);
+  await assert.rejects(svc.testMail(id, { from: 'a@b.de', password: '', to: 'c@d.de' }), (e) => e.status === 400);
+  assert.deepStrictEqual(await svc.testMail(id, { from: 'a@b.de', password: 'x', to: 'c@d.de' }), { ok: true });
+});
+
+test('remove: logs and backups stay, unless purge is asked for', async () => {
+  const h = fakeHost('en');
+  h.ctx.paths.logs = path.join(h.ctx.paths.data, 'logs');
+  const svc = new MailServerService(h);
+  const bdir = (id) => path.join(h.ctx.paths.data, 'mailserver-backups', id);
+  svc.backupDir = bdir;
+  svc.create({ engine: 'stalwart', name: 'First' });
+  const [keep, gone] = ['Keep', 'Gone'].map((name) => svc.get(svc.create({ engine: 'stalwart', name }).id));
+  for (const i of [keep, gone]) { fs.mkdirSync(i.logDir(), { recursive: true }); fs.mkdirSync(bdir(i.id), { recursive: true }); }
+  await svc.remove(keep.id);
+  assert.ok(fs.existsSync(keep.logDir()) && fs.existsSync(bdir(keep.id)), 'kept by default');
+  await svc.remove(gone.id, { purge: true });
+  assert.ok(!fs.existsSync(gone.logDir()) && !fs.existsSync(bdir(gone.id)), 'deleted with purge');
+});

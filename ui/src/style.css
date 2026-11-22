@@ -7,3 +7,5 @@
 .mail-dns-type { min-width: 3.5em; }
 .mail-actions { justify-content: flex-end; }
 .mail-gap-b { margin-bottom: var(--sp-2); }
+/* DNS table: the copy button stays visible at the right edge, even when the table scrolls sideways (narrow windows) */
+.mail-copy-cell { position: sticky; right: 0; background: var(--surface); }

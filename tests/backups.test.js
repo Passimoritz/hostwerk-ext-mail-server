@@ -143,3 +143,9 @@ test('register: host.backups (Hostwerk 2.12+), else ctx.backupCenter, else nothi
   assert.strictEqual(seen, 'mail-server');
   assert.strictEqual(registerBackups({ ctx: {} }, {}), null);
 });
+
+test('back up now without set-up: refused right away, no job', () => {
+  const m = machine('c', 'k3');
+  const { id } = m.svc.create({ engine: 'stalwart', name: 'New' });
+  assert.throws(() => m.bk.backupNow(id), (e) => e.status === 400 && /Set up the mail server first/.test(e.message));
+});

@@ -34,6 +34,17 @@ function bindCore(host) {
 
 const DOMAIN_RE = /^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
 const NAME_RE = /^[a-z0-9._+-]{1,64}$/;
+const MAIL_RE = /^[^\s@<>"]{1,64}@[^\s@<>"]{1,253}$/;
+/** Domains with umlauts (müller.de) as the DNS knows them (xn--mller-kva.de) – everything else stays as typed. */
+const asciiDomain = (d) => { const s = String(d || '').trim().toLowerCase().replace(/\.$/, ''); return (/[^\x00-\x7f]/.test(s) && require('url').domainToASCII(s)) || s; };
+/** The password vault (extension "Passwords") – or a clear message without it. */
+function vaultOf(ctx) {
+  const v = ctx.passwordVault;
+  if (!v || typeof v.save !== 'function') throw Object.assign(new Error(T('Install the extension “Passwords” to keep mailbox passwords in the vault.')), { status: 409 });
+  return v;
+}
+/** Ids that would collide with own routes (/mailservers/install|import …) or folders (data/mailserver-backups). */
+const RESERVED_IDS = new Set(['install', 'import', 'backups']);
 const pwCheck = (pw) => { if (!pw || String(pw).length < 8) throw new Error(T('The password needs at least 8 characters.')); };
 const randomPw = () => crypto.randomBytes(18).toString('base64url');
 
@@ -132,11 +143,10 @@ const stalwart = {
     p.stderr.on('data', (d) => { out = (out + d).slice(-4000); });
     try {
       await waitForPort(port, { timeout: 30000, isAlive: () => p.exitCode == null });
-      const r = await this.jmap(`http://127.0.0.1:${port}`, this.basic('admin', pw), [['x:Bootstrap/set', { update: { singleton: {
-        serverHostname: 'mail.probe.test', defaultDomain: 'probe.test', requestTlsCertificate: false, generateDkimKeys: true,
+      const body = await this.bootstrap(`http://127.0.0.1:${port}`, this.basic('admin', pw), {
+        hostname: 'mail.probe.test', defaultDomain: 'probe.test', requestTlsCertificate: false, generateDkimKeys: true,
         dataStore: { '@type': 'RocksDb', path: path.join(tmp, 'data') },
-      } } }, '0']]);
-      const body = r[0][1];
+      });
       const err = this.setError(body);
       if (err) throw new Error(T('Setup refused: {err}', { err }));
       if (!body.updated || !body.updated.singleton || !body.updated.singleton.secret) throw new Error(T('no admin account reported'));
@@ -171,7 +181,7 @@ const stalwart = {
       const r = await keeper.attempt('stalwart', { label: T('Mail server (Stalwart)'), version: rel.version, install: run, probe: probeIt, discard });
       if (r.ok) return { version: rel.version };
       lastErr = r.error;
-      if (/Smart App Control|blockiert/i.test(lastErr || '')) break; // a block hits every version
+      // Smart App Control often blocks only the newest, still unknown build – an older one usually starts (see BLOCK_HINT)
       job.log(T('Version {v} does not pass the trial run ({err}) – trying the previous one.', { v: rel.version, err: lastErr }));
     }
     throw new Error(T('Stalwart could not be set up: {err}', { err: lastErr }));
@@ -208,9 +218,50 @@ const stalwart = {
     return j.methodResponses;
   },
   basic: (user, pass) => 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64'),
+  /**
+   * x:Bootstrap/set. Stalwart 1.0 renamed "serverHostname" to "defaultHostname" – an unknown property is refused as
+   * invalidProperties without a description, then the other spelling is tried (0.16 builds know only the old one).
+   */
+  async bootstrap(base, auth, { hostname, ...rest }) {
+    let body;
+    for (const key of ['defaultHostname', 'serverHostname']) {
+      body = (await this.jmap(base, auth, [['x:Bootstrap/set', { update: { singleton: { [key]: hostname, ...rest } } }, '0']]))[0][1];
+      const e = body.notUpdated && body.notUpdated.singleton;
+      if (!(e && e.type === 'invalidProperties' && !e.description && (e.properties || []).includes(key))) break;
+    }
+    return body;
+  },
   api(inst, calls) {
     inst.requireRunning();
     return this.jmap(`http://127.0.0.1:${inst.cfg.ports.http}`, this.basic(inst.cfg.admin.user, secrets.open(inst.cfg.admin.secret)), calls);
+  },
+  /**
+   * Stalwart's rules tell receiving from sending by "local_port == 25" (sign-in required elsewhere, EHLO check, spam
+   * headers). On another receiving port (test mode 2525, or 25 taken) mail from outside would be refused with "You must
+   * authenticate first" – so the rules get the real port. Best effort: older versions without these objects stay as they are.
+   */
+  async receivePort(base, auth, port, job) {
+    try {
+      for (const o of ['MtaStageAuth', 'MtaStageEhlo', 'MtaStageData']) {
+        const cur = (await this.jmap(base, auth, [[`x:${o}/get`, { ids: ['singleton'] }, '0']]))[0][1].list;
+        if (!cur || !cur[0]) continue;
+        const update = {};
+        for (const [k, v] of Object.entries(cur[0])) {
+          if (k === 'id') continue;
+          const s = JSON.stringify(v);
+          const n = s.replace(/local_port (==|!=) 25\b/g, `local_port $1 ${port}`);
+          if (n !== s) update[k] = JSON.parse(n);
+        }
+        if (!Object.keys(update).length) continue;
+        const err = this.setError((await this.jmap(base, auth, [[`x:${o}/set`, { update: { singleton: update } }, '0']]))[0][1]);
+        if (err) throw new Error(err);
+      }
+    } catch (e) { job.log(T('Note: receiving on port {port} could not be set up ({err}) – mail from outside may need sign-in there.', { port, err: e.message })); }
+  },
+  /** Refused because of an unknown property name (other Stalwart version) – the caller then tries the other spelling. */
+  unknownKey(body) {
+    const e = body.notCreated && Object.values(body.notCreated)[0];
+    return !!(e && e.type === 'invalidPatch' && /Invalid key/i.test(e.description || ''));
   },
   setError(body) {
     for (const k of ['notCreated', 'notUpdated', 'notDestroyed']) {
@@ -233,12 +284,11 @@ const stalwart = {
     let admin;
     try {
       await waitForPort(recoveryPort, { timeout: 30000, isAlive: () => p.exitCode == null });
-      const r = await this.jmap(rb, this.basic('admin', recoveryPw), [['x:Bootstrap/set', { update: { singleton: {
-        serverHostname: hostname, defaultDomain: domain, requestTlsCertificate: !!(isPublic && letsEncrypt), generateDkimKeys: true,
+      const body = await this.bootstrap(rb, this.basic('admin', recoveryPw), {
+        hostname, defaultDomain: domain, requestTlsCertificate: !!(isPublic && letsEncrypt), generateDkimKeys: true,
         dataStore: { '@type': 'RocksDb', path: path.join(inst.dataDir(), 'data') },
         tracer: { '@type': 'Log', path: inst.logDir(), prefix: 'stalwart', rotate: 'daily', ansi: false, level: 'info', enable: true },
-      } } }, '0']]);
-      const body = r[0][1];
+      });
       const err = this.setError(body);
       if (err) throw new Error(T('Setup refused: {err}', { err }));
       admin = body.updated && body.updated.singleton;
@@ -254,14 +304,20 @@ const stalwart = {
     p = this.runTemp(inst, { ...env, STALWART_RECOVERY_MODE: '1' });
     try {
       await waitForPort(recoveryPort, { timeout: 30000, isAlive: () => p.exitCode == null });
-      const create = {};
-      for (const [name, d] of Object.entries(STALWART_PORTS)) {
-        const host = d.local || !isPublic ? '127.0.0.1' : '0.0.0.0';
-        create[name] = { name, protocol: d.protocol, bind: { [`${host}:${ports[name]}`]: true }, useTls: name !== 'http', tlsImplicit: d.implicit };
+      // Stalwart 1.0 renamed "tlsImplicit" to "implicitTls" – an unknown key is refused as invalidPatch, then the old one
+      let r;
+      for (const tlsKey of ['implicitTls', 'tlsImplicit']) {
+        const create = {};
+        for (const [name, d] of Object.entries(STALWART_PORTS)) {
+          const host = d.local || !isPublic ? '127.0.0.1' : '0.0.0.0';
+          create[name] = { name, protocol: d.protocol, bind: { [`${host}:${ports[name]}`]: true }, useTls: name !== 'http', [tlsKey]: d.implicit };
+        }
+        r = await this.jmap(rb, this.basic('admin', recoveryPw), [['x:NetworkListener/set', { create }, '1']]);
+        if (!this.unknownKey(r[0][1])) break;
       }
-      const r = await this.jmap(rb, this.basic('admin', recoveryPw), [['x:NetworkListener/set', { create }, '1']]);
       const err = this.setError(r[0][1]);
       if (err) throw new Error(T('The ports could not be set: {err}', { err }));
+      if (ports.smtp !== 25) await this.receivePort(rb, this.basic('admin', recoveryPw), ports.smtp, job);
     } catch (e) {
       job.log(p.out.split('\n').slice(-15).join('\n'));
       throw e;
@@ -279,19 +335,25 @@ const stalwart = {
   spawn(inst) {
     const m = this.installed(inst.svc);
     if (!m) throw new Error(T('Stalwart is not installed.'));
+    fs.mkdirSync(inst.logDir(), { recursive: true }); // Stalwart's log file needs the folder – otherwise the log stays empty
     return { cmd: m.exe, args: ['-c', this.configFile(inst)], cwd: inst.dataDir() };
   },
   async domains(inst) {
     const r = await this.api(inst, [
       ['x:Domain/query', {}, 'q'],
-      ['x:Domain/get', { '#ids': { resultOf: 'q', name: 'x:Domain/query', path: '/ids' }, properties: ['id', 'name', 'isEnabled', 'aliases', 'catchAllAddress', 'dnsZoneFile'] }, 'g'],
+      ['x:Domain/get', { '#ids': { resultOf: 'q', name: 'x:Domain/query', path: '/ids' }, properties: ['id', 'name', 'enable', 'isEnabled', 'aliases', 'catchAllAddress', 'dnsZoneFile'] }, 'g'],
     ]);
-    return (r[1][1].list || []).map((d) => ({ id: d.id, name: d.name, enabled: d.isEnabled !== false, aliases: Object.keys(d.aliases || {}), catchAll: d.catchAllAddress || null, zone: d.dnsZoneFile || '', records: parseZone(d.dnsZoneFile || '') }));
+    return (r[1][1].list || []).map((d) => ({ id: d.id, name: d.name, enabled: d.enable !== false && d.isEnabled !== false, aliases: Object.keys(d.aliases || {}), catchAll: d.catchAllAddress || null, zone: d.dnsZoneFile || '', records: parseZone(d.dnsZoneFile || '') }));
   },
   async addDomain(inst, name) {
-    const r = await this.api(inst, [['x:Domain/set', { create: { d: { name, isEnabled: true, dkimManagement: { '@type': 'Automatic' } } } }, '0']]);
+    // "isEnabled" is called "enable" since Stalwart 1.0
+    let r;
+    for (const key of ['enable', 'isEnabled']) {
+      r = await this.api(inst, [['x:Domain/set', { create: { d: { name, [key]: true, dkimManagement: { '@type': 'Automatic' } } } }, '0']]);
+      if (!this.unknownKey(r[0][1])) break;
+    }
     const err = this.setError(r[0][1]);
-    if (err) throw new Error(err);
+    if (err) throw Object.assign(new Error(/primaryKey|exists|duplicate/i.test(err) ? T('This domain already exists.') : err), { status: 400 });
   },
   async removeDomain(inst, id) {
     const destroy = () => this.api(inst, [['x:Domain/set', { destroy: [id] }, '0']]);
@@ -318,18 +380,22 @@ const stalwart = {
     return (r[1][1].list || []).filter((a) => a['@type'] === 'User' || !a['@type']).map((a) => ({
       id: a.id, name: a.name, email: a.emailAddress || (a.name && doms[a.domainId] ? `${a.name}@${doms[a.domainId]}` : a.name),
       domain: doms[a.domainId] || null, description: a.description || '', admin: a.roles && (a.roles['@type'] === 'Admin' || a.roles === 'Admin'),
-      quota: a.quota || null, used: a.usedDiskQuota || 0, aliases: Object.keys(a.aliases || {}),
+      quota: a.quota || null, used: a.usedDiskQuota || 0,
+      // Since Stalwart 1.0 a list of { name, domainId } objects ("0": …), before a map of addresses
+      aliases: Object.entries(a.aliases || {}).map(([k, v]) => (v && typeof v === 'object' ? `${v.name}@${doms[v.domainId] || '?'}` : k)),
     }));
   },
   async addAccount(inst, { name, domainId, password, description }) {
     const r = await this.api(inst, [['x:Account/set', { create: { a: { '@type': 'User', name, domainId, ...(description ? { description: String(description) } : {}), credentials: { 0: { '@type': 'Password', secret: String(password) } } } } }, '0']]);
     const err = this.setError(r[0][1]);
-    if (err) throw new Error(/primaryKey|exists|duplicate/i.test(err) ? T('This mailbox already exists.') : err);
+    if (err) throw Object.assign(new Error(/primaryKey|exists|duplicate/i.test(err) ? T('This mailbox already exists.') : this.weak(err)), { status: 400 });
   },
+  /** Stalwart 1.x refuses common or short passwords (English text from its strength check) – say it in the person's language. */
+  weak: (err) => (/password is too weak/i.test(err) ? T('The mail server refuses this password as too easy to guess – please use a longer one, e.g. three or four words.') : err),
   async setPassword(inst, id, password) {
     const r = await this.api(inst, [['x:Account/set', { update: { [id]: { credentials: { 0: { '@type': 'Password', secret: String(password) } } } } }, '0']]);
     const err = this.setError(r[0][1]);
-    if (err) throw new Error(err);
+    if (err) throw Object.assign(new Error(this.weak(err)), { status: 400 });
   },
   async removeAccount(inst, id) {
     const r = await this.api(inst, [['x:Account/set', { destroy: [id] }, '0']]);
@@ -397,14 +463,20 @@ const james = {
     const host = isPublic ? '0.0.0.0' : '127.0.0.1';
     const ksPw = randomPw();
     const adminPw = randomPw();
+    // James' sample trusts 127.0.0.0/8 as relay network: everything arriving from this computer (a tunnel or port forwarder
+    // too) could send to any address without sign-in and under any sender – an open relay through the back door. Like
+    // Stalwart: relaying only after sign-in. And a size limit (sample: 0 = unlimited) – 100 MB like Stalwart (value in KB).
     this.write(inst, 'smtpserver.xml', this.setBinds(this.read(inst, 'smtpserver.xml'), [`${host}:${ports.smtp}`, `${host}:${ports.submissions}`, `${host}:${ports.submission}`])
-      .replace(/Apache JAMES awesome SMTP Server/g, `${hostname} ESMTP`));
+      .replace(/Apache JAMES awesome SMTP Server/g, `${hostname} ESMTP`)
+      .replace(/[ \t]*<authorizedAddresses>[^<]*<\/authorizedAddresses>\r?\n?/g, '')
+      .replace(/<maxmessagesize>0<\/maxmessagesize>/g, '<maxmessagesize>102400</maxmessagesize>'));
     this.write(inst, 'imapserver.xml', this.setBinds(this.read(inst, 'imapserver.xml'), [`${host}:${ports.imap}`, `${host}:${ports.imaps}`]));
     this.write(inst, 'pop3server.xml', this.setBinds(this.read(inst, 'pop3server.xml'), [`${host}:${ports.pop3}`])
       .replace('<pop3server enabled="false">', '<pop3server enabled="true">').replace(/(<pop3server[\s\S]*?<tls socketTLS="false" startTLS=)"false"/, '$1"true"'));
     for (const f of ['smtpserver.xml', 'imapserver.xml', 'pop3server.xml', 'managesieveserver.xml', 'lmtpserver.xml']) {
       if (fs.existsSync(this.conf(inst, f))) this.write(inst, f, this.read(inst, f).replace(/james72laBalle/g, ksPw));
     }
+    this.ownDatabase(inst, { copy: false }); // a new setup starts with an empty database of its own
     this.write(inst, 'domainlist.xml', this.read(inst, 'domainlist.xml').replace(/<defaultDomain>[^<]*<\/defaultDomain>/, `<defaultDomain>${domain}</defaultDomain>`));
     this.write(inst, 'mailetcontainer.xml', this.read(inst, 'mailetcontainer.xml').replace(/<postmaster>[^<]*<\/postmaster>/, `<postmaster>postmaster@${domain}</postmaster>`));
     this.write(inst, 'webadmin.properties', this.read(inst, 'webadmin.properties')
@@ -415,7 +487,8 @@ const james = {
     this.write(inst, 'jvm.properties', this.read(inst, 'jvm.properties').replace(/^james\.jmx\.credential\.generation=.*$/m, 'james.jmx.credential.generation=false'));
     const logs = inst.logDir().replace(/\\/g, '/');
     fs.mkdirSync(inst.logDir(), { recursive: true });
-    this.write(inst, 'logback.xml', this.read(inst, 'logback.xml').replace(/<file>\/logs\/james\.log<\/file>/, `<file>${logs}/james.log</file>`).replace(/\/logs\/james\.%d/g, `${logs}/james.%d`));
+    this.write(inst, 'logback.xml', this.read(inst, 'logback.xml').replace(/<file>\/logs\/james\.log<\/file>/, `<file>${logs}/james.log</file>`).replace(/\/logs\/james\.%d/g, `${logs}/james.%d`)
+      .replace(/%highlight\((\[[^\]]*\])\)/g, '$1')); // no colour codes (ESC[34m …) in Hostwerk's log view
 
     job.progress(55, T('Creating a certificate for TLS …'));
     await new Promise((resolve, reject) => execFile(this.keytool(java), ['-genkeypair', '-alias', 'james', '-keyalg', 'RSA', '-keysize', '2048', '-storetype', 'PKCS12',
@@ -427,9 +500,29 @@ const james = {
       await inst.svc.restart(inst.id);
     } };
   },
+  /**
+   * The sample keeps the database (domains, mailboxes, mails) in "../var/store/derby" – relative to the working folder that
+   * is data/var/store/derby, OUTSIDE the server's folder: shared by every James server, not in backups, left behind on
+   * removal and kept on a new setup. Now it lives in the server's own folder ("var/store/derby").
+   * Servers set up before: their database is copied over once (the old folder stays) – only while no other James runs on it.
+   */
+  ownDatabase(inst, { copy = true } = {}) {
+    const f = this.conf(inst, 'james-database.properties');
+    if (!fs.existsSync(f)) return;
+    const s = fs.readFileSync(f, 'utf8');
+    if (!/jdbc:derby:\.\.\/var\/store\/derby/.test(s)) return;
+    const shared = path.join(inst.dataDir(), '..', 'var', 'store', 'derby');
+    const own = path.join(inst.dataDir(), 'var', 'store', 'derby');
+    if (copy && fs.existsSync(shared) && !fs.existsSync(own)) {
+      if (inst.svc.configured().some((o) => o !== inst && o.cfg.engine === 'james' && o.proc.isRunning())) return;
+      fs.cpSync(shared, own, { recursive: true });
+    }
+    fs.writeFileSync(f, s.replace(/jdbc:derby:\.\.\/var\/store\/derby/g, 'jdbc:derby:var/store/derby'));
+  },
   spawn(inst) {
     const m = this.installed(inst.svc);
     if (!m) throw new Error(T('Apache James is not installed.'));
+    this.ownDatabase(inst);
     const j = inst.svc.ctx.services.java;
     const major = j.installed().find((x) => x >= 21);
     if (!major) throw new Error(T('Java 21 or newer is missing – please set up the mail server again.'));
@@ -496,6 +589,8 @@ const james = {
     });
   },
   async addDomain(inst, name, { restart = true } = {}) {
+    // James' PUT is idempotent – without this check a second click restarts the server (15 s) for nothing
+    if (restart && ((await this.api(inst, 'GET', '/domains')) || []).includes(name)) throw Object.assign(new Error(T('This domain already exists.')), { status: 400 });
     await this.api(inst, 'PUT', `/domains/${encodeURIComponent(name)}`);
     inst.cfg.jamesDomains = [...new Set([...(inst.cfg.jamesDomains || []), name])];
     inst.svc.ctx.settings.save();
@@ -517,7 +612,10 @@ const james = {
   },
   async addAccount(inst, { name, domainId, password }) {
     const u = `${name}@${domainId}`;
-    try { await this.api(inst, 'PUT', `/users/${encodeURIComponent(u)}`, { password: String(password) }); } catch (e) { throw e.status === 409 ? new Error(T('This mailbox already exists.')) : e; }
+    // James' user table (JPA) holds about 100 characters – longer ones end in an "Error while upserting user" (HTTP 500)
+    if (u.length > 100) throw Object.assign(new Error(T('With Apache James the whole address may have at most 100 characters.')), { status: 400 });
+    // Only James' own 409 means "exists" – "not running" (requireRunning) is a 409 too and must stay as it is
+    try { await this.api(inst, 'PUT', `/users/${encodeURIComponent(u)}`, { password: String(password) }); } catch (e) { throw e.status === 409 && !e.svc ? new Error(T('This mailbox already exists.')) : e; }
   },
   async setPassword(inst, id, password) { await this.api(inst, 'PUT', `/users/${encodeURIComponent(id)}?force`, { password: String(password) }); },
   async removeAccount(inst, id) { await this.api(inst, 'DELETE', `/users/${encodeURIComponent(id)}`); },
@@ -587,7 +685,11 @@ class MailInstance {
     this.svc = svc;
     this.id = id;
     const c = this.cfg;
-    this.proc = new ManagedProcess(id === 'mailserver' ? 'mailserver' : `mailserver-${id}`, `${c.name} (${ENGINES[c.engine].label})`);
+    const pid = id === 'mailserver' ? 'mailserver' : `mailserver-${id}`;
+    // Extension updated or switched off and on while the server runs: take over the running process instead of
+    // registering a new, "stopped" one (Start would then fail on the ports still in use)
+    const old = registry && registry.get(pid);
+    this.proc = old && old.child ? old : new ManagedProcess(pid, `${c.name} (${ENGINES[c.engine].label})`);
     this.proc.restartFn = () => this.start();
     this.proc.healthPort = () => (this.cfg && this.cfg.configured && this.cfg.ports && this.cfg.ports.http) || null;
     this.proc.stopFn = () => this.stop();
@@ -599,7 +701,8 @@ class MailInstance {
   requireRunning() { if (this.proc.state !== 'running') throw Object.assign(new Error(T('The mail server is not running – please start it first.')), { status: 409, svc: { base: `/mailservers/${this.id}`, action: 'start' } }); }
   async start() {
     if (!this.cfg.configured) throw new Error(T('The mail server is not set up yet.'));
-    if (this.proc.isRunning()) return;
+    // Still stopping (Windows can take a while to end Java): proc.start() waits for it – returning here would skip a restart
+    if (this.proc.isRunning() && this.proc.state !== 'stopping') return;
     const s = this.impl.spawn(this);
     await this.proc.start({ ...s, ready: () => waitForPort(this.cfg.ports.http, { timeout: this.cfg.engine === 'james' ? 120000 : 60000, isAlive: () => !!this.proc.child }) });
   }
@@ -649,19 +752,26 @@ class MailServerService {
   create({ engine, name }) {
     if (!ENGINES[engine]) throw new Error(T('Unknown mail server software.'));
     if (!ENGINES[engine].platforms.includes(process.platform)) throw new Error(T('{name} does not run on this operating system.', { name: ENGINES[engine].label }));
-    name = String(name || '').trim() || (this.list().length ? T('Mail server {n}', { n: this.list().length + 1 }) : T('Mail server'));
-    const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'mail';
+    name = String(name || '').trim().slice(0, 60) || (this.list().length ? T('Mail server {n}', { n: this.list().length + 1 }) : T('Mail server'));
+    // Id = folder and address: umlauts spelled out (Müller → mueller), at most 40 characters, never a reserved word
+    const base = name.toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss').normalize('NFKD').replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9]+/g, '-').slice(0, 40).replace(/^-+|-+$/g, '') || 'mail';
     let id = this.list().length ? base : 'mailserver';
-    for (let n = 2; this.items.has(id) || id === 'mailserver' && this.list().length; n++) id = `${base}-${n}`;
+    for (let n = 2; this.items.has(id) || RESERVED_IDS.has(id) || id === 'mailserver' && this.list().length; n++) id = `${base}-${n}`;
     this.list().push({ id, engine, name, configured: false, autostart: false });
     this.ctx.settings.save();
     this.items.set(id, new MailInstance(this, id));
     return this.get(id).info();
   }
-  async remove(id) {
+  /** purge: also delete its logs (logs/mailserver-<id>) and its backups – otherwise they stay behind on purpose. */
+  async remove(id, { purge = false } = {}) {
     const i = this.get(id);
     if (i.proc.isRunning()) await i.stop();
     fs.rmSync(i.dataDir(), { recursive: true, force: true });
+    if (purge) {
+      fs.rmSync(i.logDir(), { recursive: true, force: true });
+      if (typeof this.backupDir === 'function') fs.rmSync(this.backupDir(id), { recursive: true, force: true });
+    }
     this.store().instances = this.list().filter((x) => x.id !== id);
     this.ctx.settings.save();
     this.items.delete(id);
@@ -697,8 +807,8 @@ class MailServerService {
    */
   setup(id, { domain, hostname, public: isPublic = false, letsEncrypt = false } = {}) {
     const inst = this.get(id);
-    domain = String(domain || '').trim().toLowerCase();
-    hostname = String(hostname || `mail.${domain}`).trim().toLowerCase();
+    domain = asciiDomain(domain);
+    hostname = asciiDomain(hostname || `mail.${domain}`);
     if (!DOMAIN_RE.test(domain)) throw new Error(T('Please enter a valid domain (e.g. mycompany.com).'));
     if (!DOMAIN_RE.test(hostname)) throw new Error(T('Please enter a valid host name (e.g. mail.mycompany.com).'));
     return runJob(T('Set up mail server “{name}”', { name: inst.cfg.name }), async (job) => {
@@ -728,7 +838,7 @@ class MailServerService {
   async domains(id) { const i = this.get(id); return i.impl.domains(i); }
   async addDomain(id, name) {
     const i = this.get(id);
-    name = String(name || '').trim().toLowerCase();
+    name = asciiDomain(name);
     if (!DOMAIN_RE.test(name)) throw new Error(T('Invalid domain.'));
     await i.impl.addDomain(i, name);
     return this.domains(id);
@@ -740,13 +850,21 @@ class MailServerService {
     name = String(name || '').trim().toLowerCase();
     if (!NAME_RE.test(name)) throw new Error(T('Invalid name before the @ (allowed: a–z, 0–9, . _ + -).'));
     pwCheck(password);
+    // Unknown domain (or none) would end in "name@undefined" or an English error of the mail server
+    if (!(await this.domains(id)).some((d) => d.id === domainId)) throw Object.assign(new Error(T('Choose a domain of this mail server.')), { status: 400 });
+    // Vault wanted but not there: say so before the mailbox exists (otherwise it is created and the request still fails)
+    if (vault) vaultOf(this.ctx);
     await i.impl.addAccount(i, { name, domainId, password, description });
     const list = await this.accounts(id);
     if (vault) { const a = list.find((x) => String(x.email || '').startsWith(`${name}@`)); if (a) await this.toVault(i, a.email, password); }
     return list;
   }
   async setPassword(id, accId, password, { vault = false } = {}) {
-    pwCheck(password); const i = this.get(id); await i.impl.setPassword(i, accId, password);
+    pwCheck(password); const i = this.get(id);
+    // James' "?force" would silently create a missing mailbox – only existing ones get a new password
+    if (!(await this.accounts(id)).some((x) => x.id === accId)) throw Object.assign(new Error(T('Mailbox not found')), { status: 404 });
+    if (vault) vaultOf(this.ctx);
+    await i.impl.setPassword(i, accId, password);
     if (vault) { const a = (await this.accounts(id)).find((x) => x.id === accId); if (a && a.email) await this.toVault(i, a.email, password); }
     return { ok: true };
   }
@@ -755,8 +873,7 @@ class MailServerService {
    * a new password replaces the old one (which stays in the history). Without the extension: a clear message.
    */
   async toVault(inst, email, password) {
-    const v = this.ctx.passwordVault;
-    if (!v || typeof v.save !== 'function') throw Object.assign(new Error(T('Install the extension “Passwords” to keep mailbox passwords in the vault.')), { status: 409 });
+    const v = vaultOf(this.ctx);
     const c = inst.cfg;
     return v.save({ source: 'mail-server', key: `mailbox:${email}`, name: T('Mailbox {email}', { email }), username: email, password, url: c.hostname ? `imaps://${c.hostname}` : '', notes: T('IMAP {host}, sending port {port} (STARTTLS)', { host: c.hostname || '–', port: (c.ports && c.ports.submission) || 587 }), folder: 'Hostwerk/Mail' });
   }
@@ -791,7 +908,13 @@ class MailServerService {
 
   /** Test mail through the sending port (STARTTLS + sign-in) to a mailbox. */
   async testMail(id, { from, password, to }) {
-    const c = this.get(id).cfg;
+    const inst = this.get(id);
+    const c = inst.cfg;
+    if (!c.configured || !c.ports) throw Object.assign(new Error(T('The mail server is not set up yet.')), { status: 409 });
+    inst.requireRunning();
+    from = String(from || '').trim(); to = String(to || '').trim();
+    if (!MAIL_RE.test(from) || !MAIL_RE.test(to)) throw Object.assign(new Error(T('Please enter complete e-mail addresses (name@domain).')), { status: 400 });
+    if (!password) throw Object.assign(new Error(T('Enter the password of the sender mailbox.')), { status: 400 });
     const raw = [`From: ${from}`, `To: ${to}`, `Subject: ${T('Test from Hostwerk')}`, `Date: ${new Date().toUTCString()}`, `Message-ID: <${crypto.randomUUID()}@${c.hostname}>`, 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=UTF-8', '', T('This message was sent by Hostwerk through your own mail server.'), ''].join('\r\n');
     await sendRaw({ host: '127.0.0.1', port: c.ports.submission, secure: false, user: from, pass: password, from, to: [to], raw, insecure: true, helo: c.hostname });
     return { ok: true };
@@ -805,7 +928,7 @@ class MailServerService {
     r.post('/mailservers', (req, res) => res.json(this.create(req.body || {})));
     r.post('/mailservers/install/:engine', (req, res) => res.json({ job: this.install(req.params.engine).id }));
     r.get('/mailservers/:id', (req, res) => res.json(this.get(I(req)).info()));
-    r.delete('/mailservers/:id', async (req, res) => { await this.remove(I(req)); res.json(this.overview()); });
+    r.delete('/mailservers/:id', async (req, res) => { const q = (req.query || {}).purge; await this.remove(I(req), { purge: q === '1' || q === 'true' }); res.json(this.overview()); });
     r.put('/mailservers/:id', (req, res) => {
       const c = this.get(I(req)).cfg;
       const b = req.body || {};
@@ -827,7 +950,7 @@ class MailServerService {
     r.get('/mailservers/:id/accounts', async (req, res) => res.json(await this.accounts(I(req))));
     r.post('/mailservers/:id/accounts', async (req, res) => res.json(await this.addAccount(I(req), req.body || {})));
     r.put('/mailservers/:id/accounts/:a/password', async (req, res) => res.json(await this.setPassword(I(req), req.params.a, (req.body || {}).password, { vault: !!(req.body || {}).vault })));
-    r.post('/mailservers/:id/accounts/:a/vault', async (req, res) => { const i = this.get(I(req)); const a = (await this.accounts(I(req))).find((x) => x.id === req.params.a); if (!a) throw Object.assign(new Error(T('Mailbox not found')), { status: 404 }); res.json(await this.toVault(i, a.email, String((req.body || {}).password || ''))); });
+    r.post('/mailservers/:id/accounts/:a/vault', async (req, res) => { const i = this.get(I(req)); const a = (await this.accounts(I(req))).find((x) => x.id === req.params.a); if (!a) throw Object.assign(new Error(T('Mailbox not found')), { status: 404 }); const pw = String((req.body || {}).password || ''); pwCheck(pw); res.json(await this.toVault(i, a.email, pw)); }); // no empty entry in the vault
     r.get('/mailservers/:id/delivery-check', async (req, res) => res.json(await this.deliveryCheck(I(req))));
     r.delete('/mailservers/:id/accounts/:a', async (req, res) => res.json(await this.removeAccount(I(req), req.params.a)));
     r.post('/mailservers/:id/test', async (req, res) => res.json(await this.testMail(I(req), req.body || {})));

@@ -9,6 +9,7 @@
  *   POST   /api/mailservers/:id/backups                 → { job }  back up now (stops the server briefly)
  *   POST   /api/mailservers/:id/backups/:file/restore   → { job }  the current state is backed up first
  *   DELETE /api/mailservers/:id/backups/:file
+ *   DELETE /api/mailservers/:id?purge=1                  → remove the mail server together with its logs and backups
  *   POST   /api/mailservers/import                      → { job }  { file, adminPassword } – take over from another computer
  *   GET    /api/mailservers/:id/dns-auto                → { available, domains: [{ name, zone, records: [{ key, present … }] }] }
  *   POST   /api/mailservers/:id/dns-auto                → { keys } – set these records through the extension "DNS management"
@@ -50,6 +51,7 @@ function activate(host) {
   // Backups: own page, backup centre, off-site backup, moving to another computer
   const util = host.core('util');
   const bk = mailBackups(svc, { t: (s, v) => host.t(s, v), runJob: host.core('jobs').runJob, zipDir: (src, dest) => util.zipDir(src, dest), unzipTo: (src, dest) => util.unzipTo(src, dest), secrets: host.core('secrets') });
+  svc.backupDir = (id) => bk.dir(id); // "Remove" with "also delete logs and backups"
   const offBackups = registerBackups(host, bk.source);
   if (offBackups) host.on('shutdown', () => offBackups());
   const r = host.router;

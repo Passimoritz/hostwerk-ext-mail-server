@@ -71,6 +71,8 @@ function mailBackups(svc, deps) {
   /** Jetzt sichern (Knopf auf der Seite, Aufgaben) – behält die neuesten KEEP Stände. */
   function backupNow(id) {
     const inst = svc.get(id);
+    // Not set up yet: nothing to pack – say so right away instead of starting a job that fails later
+    if (!inst.cfg.configured) throw Object.assign(new Error(T('Set up the mail server first – then it can be backed up.')), { status: 400 });
     return deps.runJob(T('Back up mail server “{name}”', { name: inst.cfg.name }), async (job) => {
       fs.mkdirSync(dirOf(id), { recursive: true });
       const dest = await pack(inst, path.join(dirOf(id), `${id}-${stamp()}.zip`), job);

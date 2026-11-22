@@ -196,6 +196,10 @@
   "Stalwart is not installed.": "Stalwart ist nicht installiert.",
   "The domain still has mailboxes – please delete them first.": "Die Domain hat noch Postfächer – bitte diese zuerst löschen.",
   "This mailbox already exists.": "Dieses Postfach gibt es schon.",
+  "This domain already exists.": "Diese Domain gibt es schon.",
+  "With Apache James the whole address may have at most 100 characters.": "Bei Apache James darf die ganze Adresse höchstens 100 Zeichen lang sein.",
+  "The mail server refuses this password as too easy to guess – please use a longer one, e.g. three or four words.": "Der Mailserver lehnt dieses Passwort als zu leicht zu erraten ab – bitte ein längeres nehmen, z. B. drei oder vier Wörter.",
+  "Note: receiving on port {port} could not be set up ({err}) – mail from outside may need sign-in there.": "Hinweis: Empfang auf Port {port} ließ sich nicht einrichten ({err}) – Mail von außen verlangt dort evtl. eine Anmeldung.",
   "Downloading Apache James {v} (JPA)": "Apache James {v} (JPA) wird geladen",
   "Downloading Apache James {v}": "Apache James {v} herunterladen",
   "The James archive has an unexpected layout.": "Das James-Archiv hat einen unerwarteten Aufbau.",
@@ -322,6 +326,13 @@
   "Admin password of the old computer": "Admin-Passwort vom alten Rechner",
   "Only for Stalwart: on the old computer under “Admin access”. Apache James brings it along.": "Nur bei Stalwart: auf dem alten Rechner unter „Admin-Zugang“. Apache James bringt es selbst mit.",
   "Start the mail server here only when the old computer no longer receives mail – and point the DNS records (A record of the host name) to this computer.": "Starte den Mailserver hier erst, wenn der alte Rechner keine Mails mehr annimmt – und lass die DNS-Einträge (A-Eintrag des Host-Namens) auf diesen Rechner zeigen.",
+  "Please enter complete e-mail addresses (name@domain).": "Bitte vollständige E-Mail-Adressen angeben (name@domain).",
+  "Enter the password of the sender mailbox.": "Bitte das Passwort des Absender-Postfachs eingeben.",
+  "Choose a domain of this mail server.": "Bitte eine Domain dieses Mailservers wählen.",
+  "found": "gefunden",
+  "removed": "entfernt",
+  "skipped": "übersprungen",
+  "Real mailboxes (Stalwart, James)": "Echte Postfächer (Stalwart, James)",
   "$patterns": [
     [
       "info@{}",
@@ -331,5 +342,10 @@
       "mail.{}",
       "mail.{}"
     ]
-  ]
+  ],
+  "Set up the mail server first – then it can be backed up.": "Richte den Mailserver zuerst ein – danach lässt er sich sichern.",
+  "Copy all values (name, type, value)": "Alle Werte kopieren (Name, Typ, Wert)",
+  "Also delete its logs and backups": "Auch seine Protokolle und Sicherungen löschen",
+  "Choose a mailbox …": "Postfach wählen …",
+  "Other address …": "Andere Adresse …"
 }
