@@ -1,3 +1,10 @@
+## 1.4.0
+
+- Works with current Stalwart versions (1.x) again; if Smart App Control blocks the newest build, the next older one is tried; receiving on another port than 25 no longer asks outside senders to sign in. / Läuft wieder mit aktuellen Stalwart-Versionen (1.x); blockiert Smart App Control die neueste Fassung, wird die nächstältere versucht; Empfang auf einem anderen Port als 25 verlangt von Absendern draußen keine Anmeldung mehr.
+- Safer Apache James: no open relay through this computer any more (sending only after sign-in), 100 MB size limit, and each server keeps its own database inside its folder (so it is in backups and removed with it). / Sichereres Apache James: kein offenes Relay über diesen Rechner mehr (Senden nur nach Anmeldung), 100 MB Größengrenze, und jeder Server hat seine eigene Datenbank in seinem Ordner (damit in Sicherungen und wird mit entfernt).
+- New: domains with umlauts (müller.de), “Copy all values” for the DNS records, “Also delete its logs and backups” when removing, test mail with a choice of sender mailbox. / Neu: Domains mit Umlauten (müller.de), „Alle Werte kopieren“ bei den DNS-Einträgen, „Auch seine Protokolle und Sicherungen löschen“ beim Entfernen, Testmail mit Auswahl des Absender-Postfachs.
+- Fixes: clearer messages (weak password, existing domain, too long addresses), no empty password in the vault, DNS table and long names fit at 1024 px, errors when renaming or removing are shown. / Behoben: klarere Meldungen (schwaches Passwort, vorhandene Domain, zu lange Adressen), kein leeres Passwort im Tresor, DNS-Tabelle und lange Namen passen bei 1024 px, Fehler beim Umbenennen oder Entfernen werden angezeigt.
+
 ## 1.3.2
 
 - New animated icon and banner in the common Hostwerk style (isometric block). / Neues animiertes Symbol und Banner im gemeinsamen Hostwerk-Stil (isometrischer Block).
